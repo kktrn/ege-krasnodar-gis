@@ -10,6 +10,12 @@
 </head>
 <body>
 
+<!-- Переключатель вкладок -->
+<div class="tabs-bar">
+    <button class="tab-btn active" id="tab-map-btn" onclick="switchTab('map')">🗺️ Карта и аналитика</button>
+    <button class="tab-btn" id="tab-analytics-btn" onclick="switchTab('analytics')">📊 Типология МО (Научная справка)</button>
+</div>
+
 <div id="map-container">
     <div class="top-bar">
         <h2>
@@ -47,14 +53,12 @@
             <label style="cursor:pointer; font-weight:600; color:#30336b;">
                 <input type="checkbox" id="chk-circles" checked> Значки уч.
             </label>
-            <label style="cursor:pointer; font-weight:600; color:#2c3e50;">
+            <label style="cursor:pointer; font-weight:600;">
                 <input type="checkbox" id="chk-labels"> Подписи
             </label>
 
-            <label class="btn btn-purple" style="cursor:pointer;" title="Загрузить новый файл Excel в базу данных PostgreSQL">
-                🔄 Загрузить Excel в БД
-                <input type="file" id="excel-upload" accept=".xlsx,.xls" style="display:none">
-            </label>
+            <!-- Кнопка переключения темной/светлой темы -->
+            <button class="btn btn-theme" onclick="toggleTheme()" id="theme-btn" title="Сменить тему оформления">🌙 Тёмная</button>
         </div>
     </div>
 
@@ -73,20 +77,59 @@
     </div>
 </div>
 
+<!-- Вторая вкладка: Научная справка и классификация районов -->
+<div id="analytics-view">
+    <h2>Научно-методическая справка: Классификация и типология муниципальных образований</h2>
+    <p>В данном разделе представлена матрица типологического районирования результатов ЕГЭ по географии в Краснодарском крае на основе сопряженного анализа динамики среднего балла и изменения контингента участников за выбранный период.</p>
+    
+    <table class="typology-table">
+        <thead>
+            <tr>
+                <th>Тип муниципального образования</th>
+                <th>Критерии выделения (условия)</th>
+                <th>Характеристика образовательной среды</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><strong style="color: #1a9850;">Тип 1: Устойчивый рост</strong></td>
+                <td>Рост участников (>0) и рост среднего балла (>+5 баллов)</td>
+                <td>Высокая эффективность профильного обучения географии, рост популярности предмета при улучшении качества подготовки.</td>
+            </tr>
+            <tr>
+                <td><strong style="color: #e67e22;">Тип 2: Рост популярности при снижении балла</strong></td>
+                <td>Рост участников (>+5) при снижении среднего балла (&lt;-3)</td>
+                <td>Массовый охват экзаменом при снижении селективности отбора выпускников, сдающих географию по выбору.</td>
+            </tr>
+            <tr>
+                <td><strong style="color: #3498db;">Тип 3: Снижение числа участников при росте балла</strong></td>
+                <td>Сокращение участников (&lt;0) при росте среднего балла (>+5)</td>
+                <td>Переход на углубленную подготовку меньшего числа мотивированных учащихся (высокая результативность элитных групп).</td>
+            </tr>
+            <tr>
+                <td><strong style="color: #d35400;">Тип 4: Стабильность показателей</strong></td>
+                <td>Колебания балла и участников в пределах ±5%</td>
+                <td>Инертная образовательная среда с устоявшимися результатами обучения без резких качественных сдвигов.</td>
+            </tr>
+        </tbody>
+    </table>
+    <br>
+    <button class="btn btn-blue" onclick="switchTab('map')">← Вернуться к интерактивной карте</button>
+</div>
+
 <div id="sidebar">
     <div class="sidebar-header">
         <div>
             <h3 class="sidebar-title" id="region-name">Краснодарский край</h3>
             <div id="region-type" class="type-badge">Загрузка данных из БД...</div>
         </div>
-        <button class="btn btn-blue krai-btn" onclick="selectDistrict('all', false)">📊 Весь край</button>
+        <button class="btn btn-blue krai-btn" onclick="selectDistrict('all', true)">📊 Весь край</button>
     </div>
 
-    <!-- Переключатель изоляции одного выбранного района на карте -->
     <div class="isolate-bar" id="isolate-bar" style="display:none;">
         <span>🔍 Режим фокуса на муниципалитете:</span>
         <label style="cursor:pointer;">
-            <input type="checkbox" id="chk-isolate"> Оставить только его шейп на карте
+            <input type="checkbox" id="chk-isolate"> Оставить только его шейп
         </label>
     </div>
 
@@ -105,17 +148,12 @@
         </div>
     </div>
 
-    <!-- Кнопки выгрузки аналитических отчетов -->
     <div class="report-actions">
-        <button class="btn btn-green" onclick="downloadExcelReport()">📥 Скачать отчет Excel (.xlsx)</button>
-        <button class="btn btn-dark" onclick="printPDFReport()">📄 Сформировать PDF-отчет</button>
+        <button class="btn btn-green" onclick="downloadExcelReport()" style="width:100%; justify-content:center;">📥 Скачать сводный отчет Excel (.xlsx)</button>
     </div>
 
     <div class="chart-box"><canvas id="scoreChart" height="150"></canvas></div>
     <div class="chart-box"><canvas id="partChart" height="135"></canvas></div>
-
-    <!-- Таблица для красивой выгрузки в PDF при печати -->
-    <div id="print-report-table"></div>
 
     <div class="top-tables">
         <div class="top-box">
