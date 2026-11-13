@@ -43,6 +43,34 @@ def clean_num(val, is_int=False):
     return int(float(s)) if is_int else round(float(s), 1)
 
 
+def update_results_from_df(cur, df):
+    years = sorted([int(c.split("_")[1]) for c in df.columns if str(c).startswith("Avg_")])
+    cur.execute("DELETE FROM exam_results;")
+    cur.execute("DELETE FROM regional_benchmarks;")
+
+    for _, row in df.iterrows():
+        fid = int(row["fid"])
+        for y in years:
+            kol = clean_num(row.get(f"kol_{y}"), is_int=True)
+            avg = clean_num(row.get(f"Avg_{y}"), is_int=False)
+            cur.execute(
+                """INSERT INTO exam_results (municipality_id, year, participants_count, avg_score)
+                   VALUES (%s, %s, %s, %s)""",
+                (fid, y, kol, avg)
+            )
+
+    for y in years:
+        cur.execute(
+            "SELECT SUM(participants_count) AS tot, ROUND(AVG(avg_score), 1) AS avg_s FROM exam_results WHERE year = %s",
+            (y,)
+        )
+        res = cur.fetchone()
+        cur.execute(
+            "INSERT INTO regional_benchmarks (year, total_participants, krai_avg_score) VALUES (%s, %s, %s)",
+            (y, res["tot"], res["avg_s"])
+        )
+
+
 def seed_database_if_empty():
     conn = get_conn()
     cur = conn.cursor()
@@ -55,11 +83,12 @@ def seed_database_if_empty():
     shp_zip = os.path.join(DB_FOLDER, "ShapeFiles.zip")
     xlsx_path = os.path.join(DB_FOLDER, "атрубутивка.xlsx")
     if not os.path.exists(shp_zip) or not os.path.exists(xlsx_path):
+        cur.close()
+        conn.close()
         return
 
     xls = pd.ExcelFile(xlsx_path)
     df = pd.read_excel(xlsx_path, sheet_name=xls.sheet_names[0])
-    years = sorted([int(c.split("_")[1]) for c in df.columns if str(c).startswith("Avg_")])
 
     with tempfile.TemporaryDirectory() as tmpdir:
         with zipfile.ZipFile(shp_zip, "r") as z:
@@ -86,26 +115,7 @@ def seed_database_if_empty():
                     (i, full_name, short_name, osm_id, round(centroid.y, 5), round(centroid.x, 5), geom_json)
                 )
 
-                for y in years:
-                    kol = clean_num(row.get(f"kol_{y}"), is_int=True)
-                    avg = clean_num(row.get(f"Avg_{y}"), is_int=False)
-                    cur.execute(
-                        """INSERT INTO exam_results (municipality_id, year, participants_count, avg_score)
-                           VALUES (%s, %s, %s, %s)""",
-                        (i, y, kol, avg)
-                    )
-
-    for y in years:
-        cur.execute(
-            "SELECT SUM(participants_count) AS tot, ROUND(AVG(avg_score), 1) AS avg_s FROM exam_results WHERE year = %s",
-            (y,)
-        )
-        res = cur.fetchone()
-        cur.execute(
-            "INSERT INTO regional_benchmarks (year, total_participants, krai_avg_score) VALUES (%s, %s, %s)",
-            (y, res["tot"], res["avg_s"])
-        )
-
+    update_results_from_df(cur, df)
     conn.commit()
     cur.close()
     conn.close()
@@ -140,6 +150,17 @@ def get_all_data():
         res_map[mid]["kol"][y] = r["participants_count"]
         res_map[mid]["avg"][y] = float(r["avg_score"]) if r["avg_score"] is not None else None
 
+    # Вычисление пространственного соседства полигонов через Shapely
+    shapes_map = {m["id"]: shape(json.loads(m["geometry_geojson"])) for m in munis}
+    neighbors_map = {m["id"]: [] for m in munis}
+    ids = list(shapes_map.keys())
+    for i in range(len(ids)):
+        for j in range(i + 1, len(ids)):
+            id1, id2 = ids[i], ids[j]
+            if shapes_map[id1].touches(shapes_map[id2]) or shapes_map[id1].intersects(shapes_map[id2]):
+                neighbors_map[id1].append(id2)
+                neighbors_map[id2].append(id1)
+
     features = []
     for m in munis:
         mid = m["id"]
@@ -150,6 +171,7 @@ def get_all_data():
                 "name": m["name"],
                 "short_name": m["short_name"],
                 "center": [m["center_lat"], m["center_lon"]],
+                "neighbors": neighbors_map.get(mid, []),
                 "kol": res_map.get(mid, {}).get("kol", {}),
                 "avg": res_map.get(mid, {}).get("avg", {})
             },
@@ -170,38 +192,21 @@ def get_all_data():
     }
 
 
-@app.get("/api/report/excel")
-def download_excel_report(fid: Optional[int] = None):
-    conn = get_conn()
-    cur = conn.cursor()
-
-    cur.execute("SELECT * FROM exam_results ORDER BY municipality_id, year;")
-    results = cur.fetchall()
-    cur.execute("SELECT id, name FROM municipalities ORDER BY id;")
-    munis = {m["id"]: m["name"] for m in cur.fetchall()}
-    cur.close()
-    conn.close()
-
-    pivot_data = {}
-    for r in results:
-        mname = munis.get(r["municipality_id"], f" МО {r['municipality_id']}")
-        pivot_data.setdefault(mname, {})[r["year"]] = r["avg_score"]
-
-    df_out = pd.DataFrame(pivot_data).T
-    df_out.index.name = "Муниципальное образование"
-    df_out.reset_index(inplace=True)
-
-    buf = io.BytesIO()
-    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-        df_out.to_excel(writer, index=False, sheet_name="Средний балл по годам")
-    buf.seek(0)
-
-    filename = "Otchet_EGE_Krasnodar_Svod.xlsx"
-    return StreamingResponse(
-        buf,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
-    )
+@app.post("/api/upload-excel")
+async def upload_excel_to_db(file: UploadFile = File(...)):
+    try:
+        content = await file.read()
+        xls = pd.ExcelFile(io.BytesIO(content))
+        df = pd.read_excel(io.BytesIO(content), sheet_name=xls.sheet_names[0])
+        conn = get_conn()
+        cur = conn.cursor()
+        update_results_from_df(cur, df)
+        conn.commit()
+        cur.close()
+        conn.close()
+        return {"status": "ok", "message": "База данных PostgreSQL успешно обновлена!"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 if os.path.exists(FRONTEND_FOLDER):
