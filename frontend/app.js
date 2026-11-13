@@ -28,60 +28,26 @@ const distSelect = document.getElementById("district-select");
 const compSelect = document.getElementById("compare-select");
 const yearFromSel = document.getElementById("year-from");
 const yearToSel = document.getElementById("year-to");
+const yearSelect = document.getElementById("year-select");
 
 let geoLayer = null;
 let badgeMarkers = [];
 let labelMarkers = [];
 let layerByFidMap = {};
 
-function toggleTheme() {
-    document.body.classList.toggle("dark-theme");
-    const isDark = document.body.classList.contains("dark-theme");
-    document.getElementById("theme-btn").innerText = isDark ? "☀️ Светлая" : "🌙 Тёмная";
+// Всплывающее окно справки
+function toggleHelpModal() {
+    const modal = document.getElementById("help-modal");
+    modal.style.display = modal.style.display === "flex" ? "none" : "flex";
 }
 
-function switchTab(tabName) {
-    const mapContainer = document.getElementById("map-container");
-    const analyticsView = document.getElementById("analytics-view");
-    const btnMap = document.getElementById("tab-map-btn");
-    const btnAnalytics = document.getElementById("tab-analytics-btn");
-
-    if (tabName === "map") {
-        mapContainer.style.display = "flex";
-        analyticsView.style.display = "none";
-        btnMap.classList.add("active");
-        btnAnalytics.classList.remove("active");
-        setTimeout(() => map.invalidateSize(), 200);
-    } else {
-        mapContainer.style.display = "none";
-        analyticsView.style.display = "block";
-        btnMap.classList.remove("active");
-        btnAnalytics.classList.add("active");
-    }
-}
-
-function setupYearButtons() {
-    const container = document.getElementById("years-buttons-container");
-    if (!container) return;
-    container.innerHTML = "";
-    
+// Заполнение выпадающего списка годов
+function setupYearSelect() {
+    yearSelect.innerHTML = "";
     years.forEach(y => {
-        const btn = document.createElement("button");
-        btn.innerText = y;
-        btn.style.cssText = `
-            padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border-color);
-            background: ${y === currentYear ? '#27ae60' : 'var(--bg-panel)'};
-            color: ${y === currentYear ? '#fff' : 'var(--text-main)'};
-            font-weight: 600; cursor: pointer; font-size: 11.5px;
-        `;
-        btn.onclick = () => {
-            currentYear = y;
-            setupYearButtons();
-            document.querySelectorAll(".cur-year").forEach(el => el.innerText = currentYear);
-            selectDistrict(selectedFid, false);
-        };
-        container.appendChild(btn);
+        yearSelect.add(new Option(y, y));
     });
+    yearSelect.value = currentYear;
 }
 
 async function loadDataFromBackend() {
@@ -102,7 +68,7 @@ async function loadDataFromBackend() {
         });
 
         currentYear = years[years.length - 1];
-        setupYearButtons();
+        setupYearSelect();
 
         yearFromSel.innerHTML = "";
         yearToSel.innerHTML = "";
@@ -123,11 +89,11 @@ async function loadDataFromBackend() {
                 compSelect.add(new Option(p.name, p.fid));
             });
 
-        document.getElementById("db-status").innerText = `● PostgreSQL: ${allFeatures.length} МО (${years[0]}–${years[years.length - 1]})`;
+        document.getElementById("db-status").innerText = `● PostgreSQL: ${allFeatures.length} МО`;
         selectDistrict("all", true);
     } catch (err) {
         console.error(err);
-        document.getElementById("db-status").innerText = "✖ Ошибка связи с сервером";
+        document.getElementById("db-status").innerText = "✖ Ошибка связи";
     }
 }
 
@@ -161,12 +127,12 @@ function getSpread(fid) {
 }
 function getTypology(fid) {
     const dA = getDynAvg(fid), dK = getDynKol(fid);
-    if (Math.abs(dA) <= 5 && Math.abs(dK) <= 5) return { name: "Тип 4: Стабильность показателей", color: "#fee08b" };
-    if (dK > 0 && dA > 5) return { name: "Тип 1: Устойчивый рост (балл ↑, уч. ↑)", color: "#1a9850" };
-    if (dK > 5 && dA < -3) return { name: "Тип 2: Рост популярности при снижении балла", color: "#e67e22" };
-    if (dK < 0 && dA > 5) return { name: "Тип 3: Сниж. участников при росте балла", color: "#3498db" };
-    if (dA < -5) return { name: "Зона снижения среднего балла", color: "#d73027" };
-    return { name: "Тип 4: Умеренные колебания", color: "#fee08b" };
+    if (Math.abs(dA) <= 5 && Math.abs(dK) <= 5) return { name: "Тип 4: Стабильность", color: "#fee08b" };
+    if (dK > 0 && dA > 5) return { name: "Тип 1: Устойчивый рост", color: "#1a9850" };
+    if (dK > 5 && dA < -3) return { name: "Тип 2: Рост популярности при сниж. балла", color: "#e67e22" };
+    if (dK < 0 && dA > 5) return { name: "Тип 3: Сниж. уч. при росте балла", color: "#3498db" };
+    if (dA < -5) return { name: "Зона снижения балла", color: "#d73027" };
+    return { name: "Тип 4: Стабильность", color: "#fee08b" };
 }
 
 function getColorAvg(v) {
@@ -228,6 +194,15 @@ function updateLegend(mode) {
             '<i style="background:#f1c40f"></i> Средние (7–15 б.)<br>' +
             '<i style="background:#e74c3c"></i> Нестабильные (> 15 б.)';
     }
+
+    // Добавляем условные обозначения кружочков ТОЛЬКО если включена галочка
+    if (document.getElementById("chk-circles").checked) {
+        html += '<hr style="margin:5px 0; border:0; border-top:1px solid #ddd;">' +
+                '<b>Участники (значки):</b><br>' +
+                '<span class="circle-sample" style="width:16px;height:16px;">5</span> 1–10 ' +
+                '<span class="circle-sample" style="width:20px;height:20px;">24</span> 11–50 ' +
+                '<span class="circle-sample" style="width:26px;height:26px;">244</span> >50';
+    }
     div.innerHTML = html;
 }
 
@@ -243,6 +218,10 @@ function renderMap(fitView = false) {
     const showCircles = document.getElementById("chk-circles").checked;
     const showLabels = document.getElementById("chk-labels").checked;
     const isolateMode = document.getElementById("chk-isolate").checked && selectedFid !== "all";
+
+    const isYearly = (mode === "avg" || mode === "kol");
+    document.getElementById("time-panel").style.display = isYearly ? "flex" : "none";
+    document.getElementById("period-box").style.display = isYearly ? "none" : "inline-flex";
 
     updateLegend(mode);
     updateTopTables();
@@ -446,12 +425,34 @@ function downloadExcelReport() {
     window.location.href = `${API_BASE}/api/report/excel`;
 }
 
+// Возвращенный PDF-отчет
+function printPDFReport() {
+    let html = `<h4>Аналитическая ведомость результатов ЕГЭ по географии (${years[0]}–${years[years.length - 1]} гг.)</h4>`;
+    html += `<table><thead><tr><th>Год</th><th>Участников (чел.)</th><th>Средний балл</th><th>Краевой ср. балл</th></tr></thead><tbody>`;
+
+    years.forEach(y => {
+        const kol = selectedFid === "all" ? kraiKolByYear[y] : (districtById[selectedFid].kol[y] ?? "—");
+        const avg = selectedFid === "all" ? kraiAvgByYear[y] : (districtById[selectedFid].avg[y] ?? "—");
+        const kAvg = kraiAvgByYear[y] ?? "—";
+        html += `<tr><td><b>${y}</b></td><td>${kol}</td><td>${avg}</td><td>${kAvg}</td></tr>`;
+    });
+    html += `</tbody></table>`;
+    document.getElementById("print-report-table").innerHTML = html;
+    window.print();
+}
+
 document.getElementById("mode-select").addEventListener("change", () => renderMap(false));
 document.getElementById("chk-circles").addEventListener("change", () => renderMap(false));
 document.getElementById("chk-labels").addEventListener("change", () => renderMap(false));
 document.getElementById("chk-isolate").addEventListener("change", () => renderMap(true));
 yearFromSel.addEventListener("change", () => renderMap(false));
 yearToSel.addEventListener("change", () => renderMap(false));
+
+yearSelect.addEventListener("change", (e) => {
+    currentYear = parseInt(e.target.value);
+    document.querySelectorAll(".cur-year").forEach(el => el.innerText = currentYear);
+    selectDistrict(selectedFid, false);
+});
 
 distSelect.addEventListener("change", (e) => {
     const val = e.target.value === "all" ? "all" : parseInt(e.target.value);
@@ -472,7 +473,7 @@ playBtn.addEventListener("click", () => {
             let idx = years.indexOf(currentYear);
             let nextYear = (idx >= 0 && idx < years.length - 1) ? years[idx + 1] : years[0];
             currentYear = nextYear;
-            setupYearButtons();
+            yearSelect.value = currentYear;
             document.querySelectorAll(".cur-year").forEach(el => el.innerText = currentYear);
             selectDistrict(selectedFid, false);
         }, 1200);
