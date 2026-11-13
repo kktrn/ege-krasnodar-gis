@@ -2,135 +2,298 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>Веб-ГИС ЕГЭ по географии — Краснодарский край</title>
+    <title>Геоаналитическая система ЕГЭ — Краснодарский край</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="style.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
 
 <div id="map-container">
+    <!-- Верхняя панель управления -->
     <div class="top-bar">
-        <h2>
-            ЕГЭ по географии: Краснодарский край
-            <span class="db-pill" id="db-status">● PostgreSQL</span>
-        </h2>
+        <div class="brand-title">
+            <span class="brand-dot"></span>
+            <h2>ЕГЭ по географии: Краснодарский край</h2>
+        </div>
         <div class="controls-group">
-            <label>Карта:
+            <label class="ctrl-item">Слой карты
                 <select id="mode-select">
                     <option value="avg">Средний балл (по годам)</option>
                     <option value="kol">Количество участников (по годам)</option>
                     <option value="dyn_avg">Динамика ср. балла (за период)</option>
                     <option value="dyn_kol">Динамика участников (за период)</option>
-                    <option value="typology">★ Типология районов (4 типа)</option>
-                    <option value="stability">★ Устойчивость (размах колебаний)</option>
+                    <option value="typology">Типология районов (4 типа)</option>
+                    <option value="stability">Устойчивость (размах колебаний)</option>
                 </select>
             </label>
 
-            <div class="period-box" id="period-box">
-                Период: с <select id="year-from"></select> по <select id="year-to"></select>
-            </div>
-
-            <label>Объект:
+            <label class="ctrl-item">Муниципалитет
                 <select id="district-select">
-                    <option value="all">📊 ВЕСЬ КРАСНОДАРСКИЙ КРАЙ</option>
+                    <option value="all">📊 Весь Краснодарский край</option>
                 </select>
             </label>
 
-            <label>Сравнить с:
+            <label class="ctrl-item">Сравнить с
                 <select id="compare-select">
                     <option value="none">— нет —</option>
                 </select>
             </label>
 
-            <label style="cursor:pointer; font-weight:600; color:#30336b;">
-                <input type="checkbox" id="chk-circles" checked> Значки уч.
-            </label>
-            <label style="cursor:pointer; font-weight:600;">
-                <input type="checkbox" id="chk-labels"> Подписи
-            </label>
+            <div class="checks-group">
+                <label class="chk-label">
+                    <input type="checkbox" id="chk-circles" checked> Количество участников
+                </label>
+                <label class="chk-label">
+                    <input type="checkbox" id="chk-labels"> Подписи районов
+                </label>
+            </div>
         </div>
     </div>
-
-    <!-- Всплывающая кнопка-справка по типологии -->
-    <div class="info-toggle-btn" onclick="toggleHelpModal()">ℹ️ О методологии и типах МО</div>
 
     <div id="map"></div>
 
-    <!-- Компактный выпадающий список выбора года (идеально для периода с 2006 года) -->
+    <!-- Левый нижний стек плашек (Паспорт выбранного МО + Методология) -->
+    <div class="bottom-left-stack">
+        <!-- Плашка выбранного района (появляется при клике на район) -->
+        <div id="district-popup-card" class="floating-card" style="display:none;">
+            <div class="fc-header">
+                <span id="fc-district-title">Муниципальное образование</span>
+                <button class="fc-close" onclick="closeDistrictCard()" title="Скрыть плашку">✕</button>
+            </div>
+            <div class="fc-body" id="fc-district-body"></div>
+        </div>
+
+        <!-- Плашка методологии (появляется только на Типологии или Устойчивости) -->
+        <div id="method-banner" class="floating-card" style="display:none;">
+            <div class="fc-header">
+                <span id="method-title">ℹ️ Методологическая справка</span>
+                <div style="display:flex; gap:6px;">
+                    <button class="fc-action" onclick="toggleMethodBody()" id="method-btn">Свернуть ▼</button>
+                    <button class="fc-close" onclick="closeMethodBanner()" title="Скрыть">✕</button>
+                </div>
+            </div>
+            <div id="method-body" class="fc-body"></div>
+        </div>
+    </div>
+
+    <!-- Нижняя компактная панель выбора года -->
     <div class="time-panel" id="time-panel">
-        <button class="play-btn" id="play-btn" title="Анимация по годам">▶ Пуск</button>
-        <label style="font-weight: 600; font-size: 12px; margin-left: 5px;">Год:</label>
-        <select id="year-select" style="font-weight: bold; font-size: 13px; padding: 4px 8px;"></select>
+        <button class="play-btn" id="play-btn">▶ Пуск</button>
+        <div class="year-picker">
+            <span>Отчетный год:</span>
+            <select id="year-select"></select>
+        </div>
     </div>
 </div>
 
-<!-- Модальное окно (всплывающая подсказка) с научной справкой -->
-<div id="help-modal" class="modal-overlay" style="display:none;">
-    <div class="modal-content">
-        <h3>Научно-методическая справка: Типология и устойчивость</h3>
-        <p>Матрица типологического районирования результатов ЕГЭ по географии базируется на сопряженном анализе динамики среднего балла и изменения контингента участников:</p>
-        <ul>
-            <li><strong style="color: #1a9850;">Тип 1 (Устойчивый рост):</strong> Рост участников и рост балла (>+5). Эффективное профильное обучение.</li>
-            <li><strong style="color: #e67e22;">Тип 2 (Рост популярности при снижении балла):</strong> Рост участников при падении балла. Массовый охват экзаменом.</li>
-            <li><strong style="color: #3498db;">Тип 3 (Снижение участников при росте балла):</strong> Сокращение контингента при росте результатов. Фокус на мотивированных учащихся.</li>
-            <li><strong style="color: #d35400;">Тип 4 (Стабильность):</strong> Колебания показателей в пределах нормы (±5%).</li>
-        </ul>
-        <p><b>Устойчивость (размах колебаний):</b> Рассчитывается как разница между максимальным и минимальным средним баллом за выбранный период (< 7 баллов — стабильные МО, > 15 баллов — высокая волатильность).</p>
-        <button class="btn btn-blue" onclick="toggleHelpModal()" style="margin-top: 10px;">Скрыть справку</button>
-    </div>
-</div>
-
+<!-- Правая аналитическая панель (Сайдбар) -->
 <div id="sidebar">
     <div class="sidebar-header">
         <div>
-            <h3 class="sidebar-title" id="region-name">Краснодарский край</h3>
-            <div id="region-type" class="type-badge">Загрузка данных из БД...</div>
+            <h3 class="sidebar-title" id="region-name">Весь Краснодарский край</h3>
+            <div id="region-type" class="type-badge">Загрузка геоданных...</div>
         </div>
-        <button class="btn btn-blue krai-btn" onclick="selectDistrict('all', true)">📊 Весь край</button>
+        <div class="header-actions">
+            <button class="btn btn-light" onclick="selectDistrict('all', true)" title="Сбросить фильтр">Весь край</button>
+            <button class="btn btn-primary" onclick="openExportModal()">📊 Экспорт отчета</button>
+        </div>
     </div>
 
     <div class="isolate-bar" id="isolate-bar" style="display:none;">
-        <span>🔍 Фокус на районе:</span>
-        <label style="cursor:pointer;"><input type="checkbox" id="chk-isolate"> Оставить только его</label>
+        <span>🔍 Фокус на муниципалитете:</span>
+        <label style="cursor:pointer; display:flex; align-items:center; gap:5px;">
+            <input type="checkbox" id="chk-isolate"> Изолировать контур на карте
+        </label>
     </div>
 
+    <!-- Блок 1: Показатели выбранного года -->
+    <div class="section-header-row">
+        <span class="section-caption">Показатели за <span class="cur-year">2025</span> год</span>
+    </div>
     <div class="stat-cards">
         <div class="card">
-            <div class="card-label">Ср. балл (<span class="cur-year">2025</span>)</div>
+            <div class="card-label">Средний балл</div>
             <div class="card-val" id="val-avg">—</div>
+            <div class="card-sub" id="sub-avg">по краю: —</div>
         </div>
         <div class="card purple">
-            <div class="card-label">Участников (<span class="cur-year">2025</span>)</div>
+            <div class="card-label">Участников</div>
             <div class="card-val" id="val-kol">—</div>
+            <div class="card-sub" id="sub-kol">доля в крае</div>
         </div>
         <div class="card orange">
-            <div class="card-label" id="rank-label">Рейтинг в крае</div>
+            <div class="card-label" id="rank-label">Рейтинг МО</div>
             <div class="card-val" id="val-rank">—</div>
+            <div class="card-sub" id="sub-rank">среди 44 МО</div>
         </div>
     </div>
 
-    <!-- Кнопки выгрузки: Excel и возвращенный PDF-отчет -->
-    <div class="report-actions">
-        <button class="btn btn-green" onclick="downloadExcelReport()">📥 Excel</button>
-        <button class="btn btn-dark" onclick="printPDFReport()">📄 PDF-отчет</button>
+    <!-- Блок 2: Аналитика за выбираемый период -->
+    <div class="section-header-row">
+        <span class="section-caption">Аналитика за период:</span>
+        <div class="inline-period-picker">
+            <span>с</span>
+            <select id="year-from"></select>
+            <span>по</span>
+            <select id="year-to"></select>
+            <span>гг.</span>
+        </div>
+    </div>
+    <div class="stat-cards mini-cards">
+        <div class="card neutral">
+            <div class="card-label">Среднее за период</div>
+            <div class="card-val" id="val-norm">—</div>
+            <div class="card-sub" id="sub-norm">норма балла</div>
+        </div>
+        <div class="card neutral">
+            <div class="card-label">Пик за период</div>
+            <div class="card-val" id="val-peak">—</div>
+            <div class="card-sub" id="sub-peak">максимум</div>
+        </div>
+        <div class="card neutral">
+            <div class="card-label">Динамика и размах</div>
+            <div class="card-val" id="val-dyn">—</div>
+            <div class="card-sub" id="sub-spread">размах: —</div>
+        </div>
     </div>
 
-    <div class="chart-box"><canvas id="scoreChart" height="140"></canvas></div>
-    <div class="chart-box"><canvas id="partChart" height="125"></canvas></div>
+    <!-- Блок 3: Переключаемые графики -->
+    <div class="chart-tabs">
+        <button class="c-tab active" onclick="switchChartTab('main', this)">📈 Динамика и уч.</button>
+        <button class="c-tab" onclick="switchChartTab('dev', this)">📊 Отклонение от края</button>
+        <button class="c-tab" onclick="switchChartTab('scatter', this)">🎯 Типологическая матрица</button>
+    </div>
 
-    <!-- Таблица для печати PDF -->
-    <div id="print-report-table"></div>
+    <div id="chart-pane-main" class="chart-pane">
+        <div class="chart-box">
+            <div class="chart-title">Динамика среднего тестового балла</div>
+            <canvas id="scoreChart" height="120"></canvas>
+        </div>
+        <div class="chart-box">
+            <div class="chart-title">Численность участников ЕГЭ (чел.)</div>
+            <canvas id="partChart" height="105"></canvas>
+        </div>
+    </div>
 
+    <div id="chart-pane-dev" class="chart-pane" style="display:none;">
+        <div class="chart-box">
+            <div class="chart-title">Отклонение среднего балла МО от среднекраевого уровня (± б.)</div>
+            <canvas id="devChart" height="185"></canvas>
+            <div class="chart-note">Зеленые столбцы показывают превышение среднекраевого балла в соответствующем году, красные — отставание.</div>
+        </div>
+    </div>
+
+    <div id="chart-pane-scatter" class="chart-pane" style="display:none;">
+        <div class="chart-box">
+            <div class="chart-title-row">
+                <span class="chart-title">Распределение МО: Участники vs Средний балл (<span class="cur-year">2025</span> г.)</span>
+                <label class="scatter-filter-lbl">
+                    <input type="checkbox" id="chk-hide-krasnodar" checked onchange="updateScatterChart()">
+                    Без г. Краснодара (масштаб 0–60 чел.)
+                </label>
+            </div>
+            <canvas id="scatterChart" height="175"></canvas>
+            <div class="chart-note">Цвет точки соответствует типу МО. Отключение г. Краснодара (244 уч.) позволяет детально рассмотреть основную группу районов (1–60 уч.).</div>
+        </div>
+    </div>
+
+    <!-- Блок 4: Рейтинговые таблицы -->
     <div class="top-tables">
         <div class="top-box">
-            <h4>🏆 Топ-5 лидеров (<span class="cur-year">2025</span>)</h4>
+            <h4>🏆 Лидеры по баллу (<span class="cur-year">2025</span>)</h4>
             <div id="top-leaders"></div>
         </div>
         <div class="top-box">
-            <h4>⚠️ Минимум балла (<span class="cur-year">2025</span>)</h4>
+            <h4>⚠️ Зона риска (<span class="cur-year">2025</span>)</h4>
             <div id="top-outsiders"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Модальное окно: Умный конструктор отчетов -->
+<div id="export-modal" class="modal-overlay" style="display:none;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <div>
+                <h3>Конструктор аналитического отчета</h3>
+                <div class="modal-subtitle">Настройте параметры и состав выгружаемой документации</div>
+            </div>
+            <button class="close-btn" onclick="closeExportModal()">✕</button>
+        </div>
+
+        <div class="form-section">
+            <div class="form-section-title">1. Выберите формат файла</div>
+            <div class="format-selector">
+                <div class="format-card active" id="fmt-pdf-card" onclick="selectFormat('pdf')">
+                    <div class="fmt-header">
+                        <span class="fmt-icon">📄</span>
+                        <span class="fmt-title">PDF-документ (Отчет)</span>
+                    </div>
+                    <div class="fmt-desc">Оформленная аналитическая справка с карточками, графиками и таблицами для печати.</div>
+                </div>
+                <div class="format-card" id="fmt-xlsx-card" onclick="selectFormat('xlsx')">
+                    <div class="fmt-header">
+                        <span class="fmt-icon">📗</span>
+                        <span class="fmt-title">Таблица Excel (.xlsx)</span>
+                    </div>
+                    <div class="fmt-desc">Многолистовая книга с цифровыми таблицами по годам и сводной матрицей МО.</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="form-section">
+            <div class="form-section-title">2. Объект анализа и база сравнения</div>
+            <div class="export-grid-2">
+                <div class="export-field">
+                    <label>Основной муниципалитет:</label>
+                    <select id="exp-district"></select>
+                </div>
+                <div class="export-field">
+                    <label>Сравнить с муниципалитетом:</label>
+                    <select id="exp-compare"></select>
+                </div>
+            </div>
+        </div>
+
+        <div class="form-section">
+            <div class="form-section-title">3. Состав включаемых разделов</div>
+            <div class="checkbox-list-vertical">
+                <label class="chk-row">
+                    <input type="checkbox" id="exp-chk-avg" checked>
+                    <span><b>Средний тестовый балл ЕГЭ</b> (погодовая динамика)</span>
+                </label>
+                <label class="chk-row">
+                    <input type="checkbox" id="exp-chk-kol" checked>
+                    <span><b>Количество участников экзамена</b> (контингент по годам)</span>
+                </label>
+                <label class="chk-row">
+                    <input type="checkbox" id="exp-chk-krai" checked>
+                    <span><b>Сравнение со среднекраевым уровнем</b> (расчет отклонения ± б.)</span>
+                </label>
+                <label class="chk-row">
+                    <input type="checkbox" id="exp-chk-dyn" checked>
+                    <span><b>Аналитика за период</b> (многолетняя норма, пик, размах и типология МО)</span>
+                </label>
+                <label class="chk-row" id="exp-chk-charts-wrap">
+                    <input type="checkbox" id="exp-chk-charts" checked>
+                    <span><b>Графики и диаграммы</b> (встроить иллюстрации в PDF-документ)</span>
+                </label>
+                <label class="chk-row">
+                    <input type="checkbox" id="exp-chk-allmo">
+                    <span><b>Полная сводная ведомость по всем 44 МО края</b> (дополнительная таблица)</span>
+                </label>
+            </div>
+        </div>
+
+        <div class="modal-footer">
+            <button class="btn btn-light" onclick="closeExportModal()">Отмена</button>
+            <button class="btn btn-primary btn-lg" onclick="generateCustomReport()">📥 Сформировать и скачать</button>
         </div>
     </div>
 </div>
