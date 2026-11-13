@@ -6,3 +6,4 @@ openpyxl
 geopandas
 shapely
 python-multipart
+fiona
