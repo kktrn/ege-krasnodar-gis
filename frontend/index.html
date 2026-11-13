@@ -10,16 +10,11 @@
 </head>
 <body>
 
-<div class="tabs-bar">
-    <button class="tab-btn active" id="tab-map-btn" onclick="switchTab('map')">🗺️ Карта и аналитика</button>
-    <button class="tab-btn" id="tab-analytics-btn" onclick="switchTab('analytics')">📊 Типология МО (Научная справка)</button>
-</div>
-
 <div id="map-container">
     <div class="top-bar">
         <h2>
             ЕГЭ по географии: Краснодарский край
-            <span class="db-pill" id="db-status">● PostgreSQL (Neon)</span>
+            <span class="db-pill" id="db-status">● PostgreSQL</span>
         </h2>
         <div class="controls-group">
             <label>Карта:
@@ -55,62 +50,36 @@
             <label style="cursor:pointer; font-weight:600;">
                 <input type="checkbox" id="chk-labels"> Подписи
             </label>
-
-            <button class="btn btn-theme" onclick="toggleTheme()" id="theme-btn">🌙 Тёмная</button>
         </div>
     </div>
 
+    <!-- Всплывающая кнопка-справка по типологии -->
+    <div class="info-toggle-btn" onclick="toggleHelpModal()">ℹ️ О методологии и типах МО</div>
+
     <div id="map"></div>
 
-    <div class="author-badge">
-        <b>Автор проекта:</b> Кулик Е.О. (ФГБОУ ВО «КубГУ», ИГГТиС, каф. геоинформатики, 05.03.03)<br>
-        <b>Научный руководитель:</b> канд. геогр. наук, доц. Комаров Д.А.
-    </div>
-    <div class="clean-attr">Картографическая основа: © OpenStreetMap contributors, Esri</div>
-
+    <!-- Компактный выпадающий список выбора года (идеально для периода с 2006 года) -->
     <div class="time-panel" id="time-panel">
-        <button class="play-btn" id="play-btn">▶ Пуск</button>
-        <div id="years-buttons-container" style="display: flex; gap: 4px; overflow-x: auto; max-width: 350px;"></div>
+        <button class="play-btn" id="play-btn" title="Анимация по годам">▶ Пуск</button>
+        <label style="font-weight: 600; font-size: 12px; margin-left: 5px;">Год:</label>
+        <select id="year-select" style="font-weight: bold; font-size: 13px; padding: 4px 8px;"></select>
     </div>
 </div>
 
-<div id="analytics-view">
-    <h2>Научно-методическая справка: Классификация и типология муниципальных образований</h2>
-    <p>Матрица типологического районирования результатов ЕГЭ по географии в Краснодарском крае на основе сопряженного анализа динамики среднего балла и изменения контингента участников.</p>
-    
-    <table class="typology-table">
-        <thead>
-            <tr>
-                <th>Тип муниципального образования</th>
-                <th>Критерии выделения</th>
-                <th>Характеристика образовательной среды</th>
-            </tr>
-        </thead>
-        <tbody>
-            <tr>
-                <td><strong style="color: #1a9850;">Тип 1: Устойчивый рост</strong></td>
-                <td>Рост участников (>0) и рост балла (>+5)</td>
-                <td>Высокая эффективность профильного обучения, рост популярности предмета.</td>
-            </tr>
-            <tr>
-                <td><strong style="color: #e67e22;">Тип 2: Рост популярности при снижении балла</strong></td>
-                <td>Рост участников (>+5) при снижении балла (&lt;-3)</td>
-                <td>Массовый охват экзаменом при снижении селективности отбора.</td>
-            </tr>
-            <tr>
-                <td><strong style="color: #3498db;">Тип 3: Сниж. участников при росте балла</strong></td>
-                <td>Сокращение участников (&lt;0) при росте балла (>+5)</td>
-                <td>Углубленная подготовка меньшего числа мотивированных учащихся.</td>
-            </tr>
-            <tr>
-                <td><strong style="color: #d35400;">Тип 4: Стабильность показателей</strong></td>
-                <td>Колебания в пределах ±5%</td>
-                <td>Инертная среда с устоявшимися результатами без резких сдвигов.</td>
-            </tr>
-        </tbody>
-    </table>
-    <br>
-    <button class="btn btn-blue" onclick="switchTab('map')">← Вернуться к карте</button>
+<!-- Модальное окно (всплывающая подсказка) с научной справкой -->
+<div id="help-modal" class="modal-overlay" style="display:none;">
+    <div class="modal-content">
+        <h3>Научно-методическая справка: Типология и устойчивость</h3>
+        <p>Матрица типологического районирования результатов ЕГЭ по географии базируется на сопряженном анализе динамики среднего балла и изменения контингента участников:</p>
+        <ul>
+            <li><strong style="color: #1a9850;">Тип 1 (Устойчивый рост):</strong> Рост участников и рост балла (>+5). Эффективное профильное обучение.</li>
+            <li><strong style="color: #e67e22;">Тип 2 (Рост популярности при снижении балла):</strong> Рост участников при падении балла. Массовый охват экзаменом.</li>
+            <li><strong style="color: #3498db;">Тип 3 (Снижение участников при росте балла):</strong> Сокращение контингента при росте результатов. Фокус на мотивированных учащихся.</li>
+            <li><strong style="color: #d35400;">Тип 4 (Стабильность):</strong> Колебания показателей в пределах нормы (±5%).</li>
+        </ul>
+        <p><b>Устойчивость (размах колебаний):</b> Рассчитывается как разница между максимальным и минимальным средним баллом за выбранный период (< 7 баллов — стабильные МО, > 15 баллов — высокая волатильность).</p>
+        <button class="btn btn-blue" onclick="toggleHelpModal()" style="margin-top: 10px;">Скрыть справку</button>
+    </div>
 </div>
 
 <div id="sidebar">
@@ -123,7 +92,7 @@
     </div>
 
     <div class="isolate-bar" id="isolate-bar" style="display:none;">
-        <span>🔍 Режим фокуса на муниципалитете:</span>
+        <span>🔍 Фокус на районе:</span>
         <label style="cursor:pointer;"><input type="checkbox" id="chk-isolate"> Оставить только его</label>
     </div>
 
@@ -142,12 +111,17 @@
         </div>
     </div>
 
+    <!-- Кнопки выгрузки: Excel и возвращенный PDF-отчет -->
     <div class="report-actions">
-        <button class="btn btn-green" onclick="downloadExcelReport()" style="width:100%; justify-content:center;">📥 Скачать сводный отчет Excel (.xlsx)</button>
+        <button class="btn btn-green" onclick="downloadExcelReport()">📥 Excel</button>
+        <button class="btn btn-dark" onclick="printPDFReport()">📄 PDF-отчет</button>
     </div>
 
-    <div class="chart-box"><canvas id="scoreChart" height="145"></canvas></div>
-    <div class="chart-box"><canvas id="partChart" height="130"></canvas></div>
+    <div class="chart-box"><canvas id="scoreChart" height="140"></canvas></div>
+    <div class="chart-box"><canvas id="partChart" height="125"></canvas></div>
+
+    <!-- Таблица для печати PDF -->
+    <div id="print-report-table"></div>
 
     <div class="top-tables">
         <div class="top-box">
@@ -158,11 +132,6 @@
             <h4>⚠️ Минимум балла (<span class="cur-year">2025</span>)</h4>
             <div id="top-outsiders"></div>
         </div>
-    </div>
-
-    <div class="author-footer">
-        ВКР: «Создание интерактивной карты результатов ЕГЭ по географии в Краснодарском крае»<br>
-        <b>Архитектура:</b> PostgreSQL (Neon) + FastAPI (Python) + Leaflet
     </div>
 </div>
 
