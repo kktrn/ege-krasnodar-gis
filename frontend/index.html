@@ -70,12 +70,12 @@
     </div>
     <div class="clean-attr">Картографическая основа: © OpenStreetMap contributors, Esri</div>
 
-    <div class="time-panel" id="time-panel">
-        <button class="play-btn" id="play-btn">▶ Пуск</button>
-        <input type="range" id="year-slider" min="2020" max="2025" step="1" value="2025">
-        <span id="year-label">2025</span>
+       <div class="time-panel" id="time-panel">
+        <button class="play-btn" id="play-btn" title="Анимация по годам">▶ Пуск</button>
+        <div id="years-buttons-container" style="display: flex; gap: 4px; overflow-x: auto; max-width: 350px; padding: 2px;">
+            <!-- Кнопки годов сгенерируются автоматически скриптом -->
+        </div>
     </div>
-</div>
 
 <!-- Вторая вкладка: Научная справка и классификация районов -->
 <div id="analytics-view">
