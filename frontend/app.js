@@ -1,4 +1,4 @@
-const API_BASE = ""; // Работает автоматически с тем же сервером FastAPI
+const API_BASE = "";
 
 let allFeatures = [];
 let districtById = {};
@@ -10,7 +10,6 @@ let currentYear = 2025;
 let selectedFid = "all";
 let compareFid = "none";
 
-// Инициализация карты БЕЗ флага и префикса Leaflet
 const map = L.map("map", { attributionControl: false }).setView([45.15, 39.1], 7);
 
 const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -32,11 +31,37 @@ const yearToSel = document.getElementById("year-to");
 const slider = document.getElementById("year-slider");
 
 let geoLayer = null;
-let layerByFid = {};
 let badgeMarkers = [];
 let labelMarkers = [];
 
-// Загрузка данных с Бэкенда (из PostgreSQL)
+// Переключение темной/светлой темы
+function toggleTheme() {
+    document.body.classList.toggle("dark-theme");
+    const isDark = document.body.classList.contains("dark-theme");
+    document.getElementById("theme-btn").innerText = isDark ? "☀️ Светлая" : "🌙 Тёмная";
+}
+
+// Переключение вкладок
+function switchTab(tabName) {
+    const mapContainer = document.getElementById("map-container");
+    const analyticsView = document.getElementById("analytics-view");
+    const btnMap = document.getElementById("tab-map-btn");
+    const btnAnalytics = document.getElementById("tab-analytics-btn");
+
+    if (tabName === "map") {
+        mapContainer.style.display = "flex";
+        analyticsView.style.display = "none";
+        btnMap.classList.add("active");
+        btnAnalytics.classList.remove("active");
+        setTimeout(() => map.invalidateSize(), 200);
+    } else {
+        mapContainer.style.display = "none";
+        analyticsView.style.display = "block";
+        btnMap.classList.remove("active");
+        btnAnalytics.classList.add("active");
+    }
+}
+
 async function loadDataFromBackend() {
     try {
         const res = await fetch(`${API_BASE}/api/data`);
@@ -54,7 +79,6 @@ async function loadDataFromBackend() {
             kraiKolByYear[b.year] = b.total_participants;
         });
 
-        // Настройка ползунка и списков годов
         slider.min = years[0];
         slider.max = years[years.length - 1];
         currentYear = years[years.length - 1];
@@ -70,7 +94,6 @@ async function loadDataFromBackend() {
         yearFromSel.value = years[0];
         yearToSel.value = years[years.length - 1];
 
-        // Заполняем выпадающие списки районов
         distSelect.innerHTML = '<option value="all">📊 ВЕСЬ КРАСНОДАРСКИЙ КРАЙ</option>';
         compSelect.innerHTML = '<option value="none">— нет —</option>';
         [...allFeatures]
@@ -86,12 +109,9 @@ async function loadDataFromBackend() {
     } catch (err) {
         console.error(err);
         document.getElementById("db-status").innerText = "✖ Ошибка связи с сервером";
-        document.getElementById("db-status").style.background = "#fadbd8";
-        document.getElementById("db-status").style.color = "#922b21";
     }
 }
 
-// Расчет аналитических показателей
 function findNearestValid(obj, targetY, dir) {
     if (obj[targetY] !== null && obj[targetY] !== undefined) return obj[targetY];
     const sortedY = dir > 0 ? [...years] : [...years].reverse();
@@ -125,19 +145,19 @@ function getTypology(fid) {
     if (Math.abs(dA) <= 5 && Math.abs(dK) <= 5) return { name: "Тип 4: Стабильность показателей", color: "#fee08b" };
     if (dK > 0 && dA > 5) return { name: "Тип 1: Устойчивый рост (балл ↑, уч. ↑)", color: "#1a9850" };
     if (dK > 5 && dA < -3) return { name: "Тип 2: Рост популярности при снижении балла", color: "#e67e22" };
-    if (dK < 0 && dA > 5) return { name: "Тип 3: Снижение числа участников при росте балла", color: "#3498db" };
+    if (dK < 0 && dA > 5) return { name: "Тип 3: Сниж. участников при росте балла", color: "#3498db" };
     if (dA < -5) return { name: "Зона снижения среднего балла", color: "#d73027" };
-    return { name: "Тип 4: Умеренные колебания / стабильность", color: "#fee08b" };
+    return { name: "Тип 4: Умеренные колебания", color: "#fee08b" };
 }
 
-// Цветовые шкалы
+// Умные шкалы с отсечкой экстремальных значений (для мегаполисов вроде Краснодара с 244 уч.)
 function getColorAvg(v) {
     if (v === null || v === undefined) return "#bdc3c7";
     return v > 85 ? "#1a9850" : v > 75 ? "#66bd63" : v > 65 ? "#a6d96a" : v > 55 ? "#fee08b" : v > 45 ? "#f46d43" : "#d73027";
 }
 function getColorKol(v) {
     if (v === null || v === undefined) return "#bdc3c7";
-    return v > 25 ? "#081d58" : v > 15 ? "#225ea8" : v > 10 ? "#41b6c4" : v > 5 ? "#7fcdbb" : "#ffffcc";
+    return v > 50 ? "#4a0e4e" : v > 25 ? "#081d58" : v > 15 ? "#225ea8" : v > 8 ? "#41b6c4" : v > 3 ? "#7fcdbb" : "#ffffcc";
 }
 function getColorDynAvg(d) {
     return d > 15 ? "#1a9850" : d > 5 ? "#91cf60" : d >= -5 ? "#ffffbf" : d >= -15 ? "#fc8d59" : "#d73027";
@@ -149,7 +169,6 @@ function getColorStability(s) {
     return s < 7 ? "#2ecc71" : s <= 15 ? "#f1c40f" : "#e74c3c";
 }
 
-// Легенда
 const legend = L.control({ position: "bottomright" });
 legend.onAdd = function () { return L.DomUtil.create("div", "legend"); };
 legend.addTo(map);
@@ -166,9 +185,9 @@ function updateLegend(mode) {
             '<i style="background:#66bd63"></i> 76 – 85<br><i style="background:#1a9850"></i> более 85';
     } else if (mode === "kol") {
         html = `<b>Число участников (${currentYear} г.)</b><br>` +
-            '<i style="background:#ffffcc"></i> 1 – 5<br><i style="background:#7fcdbb"></i> 6 – 10<br>' +
-            '<i style="background:#41b6c4"></i> 11 – 15<br><i style="background:#225ea8"></i> 16 – 25<br>' +
-            '<i style="background:#081d58"></i> более 25';
+            '<i style="background:#ffffcc"></i> 1 – 3<br><i style="background:#7fcdbb"></i> 4 – 8<br>' +
+            '<i style="background:#41b6c4"></i> 9 – 15<br><i style="background:#225ea8"></i> 16 – 25<br>' +
+            '<i style="background:#081d58"></i> 26 – 50<br><i style="background:#4a0e4e"></i> > 50 (центры)';
     } else if (mode === "dyn_avg") {
         html = `<b>Динамика балла (${y2} к ${y1} г.)</b><br>` +
             '<i style="background:#d73027"></i> менее -15<br><i style="background:#fc8d59"></i> -15 .. -5<br>' +
@@ -183,33 +202,23 @@ function updateLegend(mode) {
         html = `<b>Типология МО (${y1}–${y2} гг.)</b><br>` +
             '<i style="background:#1a9850"></i> Устойчивый рост<br>' +
             '<i style="background:#e67e22"></i> Рост уч. при сниж. балла<br>' +
-            '<i style="background:#3498db"></i> Снижение уч. при росте балла<br>' +
-            '<i style="background:#fee08b"></i> Стабильность показателей<br>' +
-            '<i style="background:#d73027"></i> Снижение среднего балла';
+            '<i style="background:#3498db"></i> Сниж. уч. при росте балла<br>' +
+            '<i style="background:#fee08b"></i> Стабильность показателей';
     } else if (mode === "stability") {
         html = `<b>Размах колебаний (${y1}–${y2} гг.)</b><br>` +
             '<i style="background:#2ecc71"></i> Стабильные (< 7 б.)<br>' +
             '<i style="background:#f1c40f"></i> Средние (7–15 б.)<br>' +
             '<i style="background:#e74c3c"></i> Нестабильные (> 15 б.)';
     }
-    if (document.getElementById("chk-circles").checked) {
-        html += '<hr style="margin:5px 0; border:0; border-top:1px solid #ddd;">' +
-                '<b>Участники (значки):</b><br>' +
-                '<span class="circle-sample" style="width:17px;height:17px;">8</span> 1–15 ' +
-                '<span class="circle-sample" style="width:22px;height:22px;">36</span> 16–50 ' +
-                '<span class="circle-sample" style="width:28px;height:28px;">244</span> >100';
-    }
     div.innerHTML = html;
 }
 
-// Отрисовка карты (с поддержкой изоляции одного выбранного района)
 function renderMap(fitView = false) {
     if (geoLayer) map.removeLayer(geoLayer);
     badgeMarkers.forEach(m => map.removeLayer(m));
     labelMarkers.forEach(m => map.removeLayer(m));
     badgeMarkers = [];
     labelMarkers = [];
-    layerByFid = {};
 
     const mode = document.getElementById("mode-select").value;
     const showCircles = document.getElementById("chk-circles").checked;
@@ -223,7 +232,6 @@ function renderMap(fitView = false) {
     updateLegend(mode);
     updateTopTables();
 
-    // Фильтруем полигоны, если включен режим "Оставить только выбранный район"
     const featuresToDraw = isolateMode
         ? allFeatures.filter(f => f.properties.fid == selectedFid)
         : allFeatures;
@@ -246,13 +254,12 @@ function renderMap(fitView = false) {
             return {
                 fillColor: fill,
                 weight: isSel ? 3 : 1.2,
-                color: fid == compareFid ? "#8e44ad" : (fid == selectedFid ? "#111" : "#333"),
+                color: fid == compareFid ? "#8e44ad" : (fid == selectedFid ? "#111" : "#555"),
                 fillOpacity: 0.82
             };
         },
         onEachFeature: function (feature, layer) {
             const fid = feature.properties.fid;
-            layerByFid[fid] = layer;
             const d = districtById[fid];
             const avg = d.avg[currentYear] ?? "нет данных";
             const kol = d.kol[currentYear] ?? "нет данных";
@@ -262,18 +269,19 @@ function renderMap(fitView = false) {
 
             layer.bindTooltip(
                 `<b>${d.name}</b><br>` +
-                `Средний балл (${currentYear}): <b>${avg}</b> | Участников: <b>${kol}</b><br>` +
-                `Динамика (${y1}→${y2}): <b>${dAvg > 0 ? "+" + dAvg : dAvg} б.</b> | Размах: <b>${spread} б.</b><br>` +
+                `Ср. балл (${currentYear}): <b>${avg}</b> | Участников: <b>${kol}</b><br>` +
+                `Динамика: <b>${dAvg > 0 ? "+" + dAvg : dAvg} б.</b> | Размах: <b>${spread} б.</b><br>` +
                 `<i>${typ}</i>`,
                 { sticky: true }
             );
-            layer.on("click", () => selectDistrict(fid, false));
+            layer.on("click", () => selectDistrict(fid, true));
 
             const center = d.center ? L.latLng(d.center[0], d.center[1]) : layer.getBounds().getCenter();
 
             if (showCircles && d.kol[currentYear]) {
                 const val = d.kol[currentYear];
-                const size = val > 100 ? 33 : val > 25 ? 26 : val > 10 ? 22 : 18;
+                // Масштабируем размер значка под экстремальные значения (до 244)
+                const size = val > 100 ? 36 : val > 30 ? 30 : val > 10 ? 24 : 18;
                 const icon = L.divIcon({
                     className: "",
                     html: `<div class="kol-badge" style="width:${size}px;height:${size}px;">${val}</div>`,
@@ -281,17 +289,16 @@ function renderMap(fitView = false) {
                     iconAnchor: [size / 2, size / 2]
                 });
                 const marker = L.marker(center, { icon: icon }).addTo(map);
-                marker.bindTooltip(`<b>${d.name}</b>: ${val} уч. (ср. балл: ${avg})`);
-                marker.on("click", () => selectDistrict(fid, false));
+                marker.bindTooltip(`<b>${d.name}</b>: ${val} уч.`);
+                marker.on("click", () => selectDistrict(fid, true));
                 badgeMarkers.push(marker);
             }
 
             if (showLabels) {
                 const shortName = d.name.replace(" район", "").replace("г-к. ", "").replace("г. ", "");
-                const offsetY = (showCircles && d.kol[currentYear]) ? -16 : 0;
                 const lblIcon = L.divIcon({
                     className: "district-label",
-                    html: `<div style="transform: translate(-50%, ${offsetY}px);">${shortName}</div>`,
+                    html: `<div>${shortName}</div>`,
                     iconSize: [0, 0]
                 });
                 const lblMarker = L.marker(center, { icon: lblIcon, interactive: false }).addTo(map);
@@ -300,12 +307,22 @@ function renderMap(fitView = false) {
         }
     }).addTo(map);
 
-    if (fitView && geoLayer.getLayers().length > 0) {
-        map.fitBounds(geoLayer.getBounds(), { maxZoom: isolateMode ? 10 : 8 });
+    // Авто-зум к выбранному району
+    if (fitView && selectedFid !== "all" && layerByFid(selectedFid)) {
+        map.fitBounds(layerByFid(selectedFid).getBounds(), { maxZoom: 9, padding: [30, 30] });
+    } else if (fitView && selectedFid === "all" && geoLayer.getLayers().length > 0) {
+        map.fitBounds(geoLayer.getBounds(), { maxZoom: 7 });
     }
 }
 
-// Графики
+function layerByFid(fid) {
+    let targetLayer = null;
+    geoLayer.eachLayer(layer => {
+        if (layer.feature.properties.fid == fid) targetLayer = layer;
+    });
+    return targetLayer;
+}
+
 const scoreChart = new Chart(document.getElementById("scoreChart"), {
     type: "line",
     data: { labels: [], datasets: [] },
@@ -354,7 +371,6 @@ function selectDistrict(fid, zoomTo = false) {
         document.getElementById("chk-isolate").checked = false;
         document.getElementById("region-name").innerText = "📊 Весь Краснодарский край";
         document.getElementById("region-type").innerText = `Сводка по всем 44 муниципалитетам (${years[0]}–${years[years.length - 1]} гг.)`;
-        document.getElementById("region-type").style.background = "#eaf2f8";
 
         document.getElementById("val-avg").innerText = kraiAvgByYear[currentYear] ?? "—";
         document.getElementById("val-kol").innerText = kraiKolByYear[currentYear] ? kraiKolByYear[currentYear] + " чел." : "—";
@@ -364,7 +380,7 @@ function selectDistrict(fid, zoomTo = false) {
         document.getElementById("val-rank").innerText = aboveCnt + " из 44";
 
         scoreChart.data.datasets = [{
-            label: "Средний балл по Краснодарскому краю",
+            label: "Средний балл по краю",
             data: years.map(y => kraiAvgByYear[y]),
             borderColor: "#27ae60", backgroundColor: "rgba(39,174,96,0.18)", fill: true, tension: 0.3, borderWidth: 3
         }];
@@ -387,8 +403,7 @@ function selectDistrict(fid, zoomTo = false) {
     document.getElementById("region-name").innerText = d.name;
     const typ = getTypology(fid);
     const spread = getSpread(fid);
-    document.getElementById("region-type").innerText = `${typ.name} (${y1}–${y2}) | Размах: ${spread} б.`;
-    document.getElementById("region-type").style.background = typ.color + "44";
+    document.getElementById("region-type").innerText = `${typ.name} | Размах: ${spread} б.`;
 
     document.getElementById("val-avg").innerText = d.avg[currentYear] ?? "нет данных";
     document.getElementById("val-kol").innerText = d.kol[currentYear] ? d.kol[currentYear] + " чел." : "нет данных";
@@ -421,55 +436,16 @@ function selectDistrict(fid, zoomTo = false) {
     renderMap(zoomTo);
 }
 
-// Выгрузка отчета Excel напрямую с бэкенда
 function downloadExcelReport() {
-    const url = selectedFid === "all"
-        ? `${API_BASE}/api/report/excel`
-        : `${API_BASE}/api/report/excel?fid=${selectedFid}`;
-    window.location.href = url;
+    window.location.href = `${API_BASE}/api/report/excel`;
 }
 
-// Формирование красивого табличного PDF-отчета для печати
-function printPDFReport() {
-    let html = `<h4>Аналитическая ведомость результатов ЕГЭ по географии (${years[0]}–${years[years.length - 1]} гг.)</h4>`;
-    html += `<table><thead><tr><th>Год</th><th>Участников (чел.)</th><th>Средний балл</th><th>Среднекраевой балл</th></tr></thead><tbody>`;
-
-    years.forEach(y => {
-        const kol = selectedFid === "all" ? kraiKolByYear[y] : (districtById[selectedFid].kol[y] ?? "—");
-        const avg = selectedFid === "all" ? kraiAvgByYear[y] : (districtById[selectedFid].avg[y] ?? "—");
-        const kAvg = kraiAvgByYear[y] ?? "—";
-        html += `<tr><td><b>${y}</b></td><td>${kol}</td><td>${avg}</td><td>${kAvg}</td></tr>`;
-    });
-    html += `</tbody></table>`;
-    document.getElementById("print-report-table").innerHTML = html;
-    window.print();
-}
-
-// Загрузка нового файла Excel в PostgreSQL
-document.getElementById("excel-upload").addEventListener("change", async function (e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    const formData = new FormData();
-    formData.append("file", file);
-
-    document.getElementById("db-status").innerText = "⏳ Загрузка в PostgreSQL...";
-    const res = await fetch(`${API_BASE}/api/upload-excel`, { method: "POST", body: formData });
-    if (res.ok) {
-        const info = await res.json();
-        alert(`✔ База данных PostgreSQL успешно обновлена! Загружены годы: ${info.years_loaded.join(", ")}`);
-        await loadDataFromBackend();
-    } else {
-        alert("Ошибка при загрузке файла Excel. Проверьте названия столбцов (kol_ГОД, Avg_ГОД).");
-    }
-});
-
-// Обработчики кнопок
-document.getElementById("mode-select").addEventListener("change", () => selectDistrict(selectedFid, false));
+document.getElementById("mode-select").addEventListener("change", () => renderMap(false));
 document.getElementById("chk-circles").addEventListener("change", () => renderMap(false));
 document.getElementById("chk-labels").addEventListener("change", () => renderMap(false));
 document.getElementById("chk-isolate").addEventListener("change", () => renderMap(true));
-yearFromSel.addEventListener("change", () => selectDistrict(selectedFid, false));
-yearToSel.addEventListener("change", () => selectDistrict(selectedFid, false));
+yearFromSel.addEventListener("change", () => renderMap(false));
+yearToSel.addEventListener("change", () => renderMap(false));
 
 distSelect.addEventListener("change", (e) => {
     const val = e.target.value === "all" ? "all" : parseInt(e.target.value);
@@ -483,7 +459,7 @@ compSelect.addEventListener("change", (e) => {
 slider.addEventListener("input", (e) => {
     currentYear = parseInt(e.target.value);
     document.getElementById("year-label").innerText = currentYear;
-    selectDistrict(selectedFid, false);
+    renderMap(false);
 });
 
 let timer = null;
