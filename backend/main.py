@@ -3,7 +3,6 @@ import io
 import json
 import zipfile
 import tempfile
-import sqlite3
 from typing import Optional
 import pandas as pd
 import fiona
@@ -12,16 +11,10 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-# =====================================================================
-# ВСТАВЬ СЮДА СВОЮ СТРОКУ ПОДКЛЮЧЕНИЯ ИЗ NEON (кнопка Connect)
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql://neondb_owner:npg_L8UcxjbDSPi4@ep-late-fog-banhh327-pooler.c-8.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
-)
-# =====================================================================
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://neondb_owner:npg_L8UcxjbDSPi4@ep-late-fog-banhh327-pooler.c-8.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require")
 
 app = FastAPI(title="Веб-ГИС ЕГЭ по географии Краснодарского края")
 
@@ -51,7 +44,6 @@ def clean_num(val, is_int=False):
 
 
 def seed_database_if_empty():
-    """Автоматически наполняет PostgreSQL из ShapeFiles.zip и атрубутивка.xlsx, если таблицы пустые"""
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("SELECT COUNT(*) AS cnt FROM municipalities;")
@@ -63,7 +55,6 @@ def seed_database_if_empty():
     shp_zip = os.path.join(DB_FOLDER, "ShapeFiles.zip")
     xlsx_path = os.path.join(DB_FOLDER, "атрубутивка.xlsx")
     if not os.path.exists(shp_zip) or not os.path.exists(xlsx_path):
-        print("Внимание: не найдены ShapeFiles.zip или атрубутивка.xlsx в папке database/")
         return
 
     xls = pd.ExcelFile(xlsx_path)
@@ -118,7 +109,6 @@ def seed_database_if_empty():
     conn.commit()
     cur.close()
     conn.close()
-    print("База данных PostgreSQL успешно наполнена из Shapefile и Excel!")
 
 
 @app.on_event("startup")
@@ -129,19 +119,14 @@ def on_startup():
 
 @app.get("/api/data")
 def get_all_data():
-    """Возвращает все полигоны, результаты по годам и среднекраевые показатели из PostgreSQL"""
     conn = get_conn()
     cur = conn.cursor()
-
     cur.execute("SELECT * FROM municipalities ORDER BY id;")
     munis = cur.fetchall()
-
     cur.execute("SELECT * FROM exam_results ORDER BY municipality_id, year;")
     results = cur.fetchall()
-
     cur.execute("SELECT * FROM regional_benchmarks ORDER BY year;")
     benchmarks = cur.fetchall()
-
     cur.close()
     conn.close()
 
@@ -185,93 +170,33 @@ def get_all_data():
     }
 
 
-@app.post("/api/upload-excel")
-async def upload_excel_to_db(file: UploadFile = File(...)):
-    """Обновление базы данных PostgreSQL при загрузке нового файла Excel (например, с данными с 2006 года)"""
-    content = await file.read()
-    xls = pd.ExcelFile(io.BytesIO(content))
-    df = pd.read_excel(io.BytesIO(content), sheet_name=xls.sheet_names[0])
-
-    years = sorted([int(c.split("_")[1]) for c in df.columns if str(c).startswith("Avg_")])
-    if not years:
-        raise HTTPException(status_code=400, detail="В файле не найдены столбцы формата Avg_2020, kol_2020 и т.д.")
-
-    conn = get_conn()
-    cur = conn.cursor()
-
-    for _, row in df.iterrows():
-        fid = int(row["fid"])
-        for y in years:
-            kol = clean_num(row.get(f"kol_{y}"), is_int=True)
-            avg = clean_num(row.get(f"Avg_{y}"), is_int=False)
-            cur.execute(
-                """INSERT INTO exam_results (municipality_id, year, participants_count, avg_score)
-                   VALUES (%s, %s, %s, %s)
-                   ON CONFLICT (municipality_id, year)
-                   DO UPDATE SET participants_count = EXCLUDED.participants_count, avg_score = EXCLUDED.avg_score;""",
-                (fid, y, kol, avg)
-            )
-
-    for y in years:
-        cur.execute(
-            "SELECT SUM(participants_count) AS tot, ROUND(AVG(avg_score), 1) AS avg_s FROM exam_results WHERE year = %s",
-            (y,)
-        )
-        res = cur.fetchone()
-        cur.execute(
-            """INSERT INTO regional_benchmarks (year, total_participants, krai_avg_score)
-               VALUES (%s, %s, %s)
-               ON CONFLICT (year)
-               DO UPDATE SET total_participants = EXCLUDED.total_participants, krai_avg_score = EXCLUDED.krai_avg_score;""",
-            (y, res["tot"], res["avg_s"])
-        )
-
-    conn.commit()
-    cur.close()
-    conn.close()
-    return {"status": "ok", "years_loaded": years}
-
-
 @app.get("/api/report/excel")
 def download_excel_report(fid: Optional[int] = None):
-    """Формирует и отдает красивый аналитический отчет в формате Excel по выбранному району или всему краю"""
     conn = get_conn()
     cur = conn.cursor()
 
-    if fid is not None:
-        cur.execute("SELECT name FROM municipalities WHERE id = %s", (fid,))
-        m_row = cur.fetchone()
-        title = m_row["name"] if m_row else f"Район_{fid}"
-        cur.execute(
-            """SELECT e.year AS "Год", e.participants_count AS "Участников (чел.)",
-                      e.avg_score AS "Средний балл МО", r.krai_avg_score AS "Средний балл по краю",
-                      ROUND(e.avg_score - r.krai_avg_score, 1) AS "Отклонение от края"
-               FROM exam_results e
-               JOIN regional_benchmarks r ON e.year = r.year
-               WHERE e.municipality_id = %s ORDER BY e.year""",
-            (fid,)
-        )
-    else:
-        title = "Краснодарский_край_сводка"
-        cur.execute(
-            """SELECT m.id AS "Код ФИД", m.name AS "Муниципальное образование",
-                      e.year AS "Год", e.participants_count AS "Участников", e.avg_score AS "Средний балл"
-               FROM exam_results e
-               JOIN municipalities m ON e.municipality_id = m.id
-               ORDER BY m.id, e.year"""
-        )
-
-    rows = cur.fetchall()
+    cur.execute("SELECT * FROM exam_results ORDER BY municipality_id, year;")
+    results = cur.fetchall()
+    cur.execute("SELECT id, name FROM municipalities ORDER BY id;")
+    munis = {m["id"]: m["name"] for m in cur.fetchall()}
     cur.close()
     conn.close()
 
-    df_out = pd.DataFrame(rows)
+    pivot_data = {}
+    for r in results:
+        mname = munis.get(r["municipality_id"], f" МО {r['municipality_id']}")
+        pivot_data.setdefault(mname, {})[r["year"]] = r["avg_score"]
+
+    df_out = pd.DataFrame(pivot_data).T
+    df_out.index.name = "Муниципальное образование"
+    df_out.reset_index(inplace=True)
+
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-        df_out.to_excel(writer, index=False, sheet_name="Аналитический отчет")
+        df_out.to_excel(writer, index=False, sheet_name="Средний балл по годам")
     buf.seek(0)
 
-    filename = f"Otchet_EGE_{fid if fid is not None else 'Krasnodar_Krai'}.xlsx"
+    filename = "Otchet_EGE_Krasnodar_Svod.xlsx"
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
