@@ -28,7 +28,6 @@ const distSelect = document.getElementById("district-select");
 const compSelect = document.getElementById("compare-select");
 const yearFromSel = document.getElementById("year-from");
 const yearToSel = document.getElementById("year-to");
-const slider = document.getElementById("year-slider");
 
 let geoLayer = null;
 let badgeMarkers = [];
@@ -41,7 +40,7 @@ function toggleTheme() {
     document.getElementById("theme-btn").innerText = isDark ? "☀️ Светлая" : "🌙 Тёмная";
 }
 
-// Переключение вкладок
+// Переключение вкладок (Карта / Научная справка)
 function switchTab(tabName) {
     const mapContainer = document.getElementById("map-container");
     const analyticsView = document.getElementById("analytics-view");
@@ -62,6 +61,31 @@ function switchTab(tabName) {
     }
 }
 
+// Генерация красивых кнопок годов вместо ползунка
+function setupYearButtons() {
+    const container = document.getElementById("years-buttons-container");
+    if (!container) return;
+    container.innerHTML = "";
+    
+    years.forEach(y => {
+        const btn = document.createElement("button");
+        btn.innerText = y;
+        btn.style.cssText = `
+            padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border-color);
+            background: ${y === currentYear ? '#27ae60' : 'var(--bg-panel)'};
+            color: ${y === currentYear ? '#fff' : 'var(--text-main)'};
+            font-weight: 600; cursor: pointer; font-size: 12px;
+        `;
+        btn.onclick = () => {
+            currentYear = y;
+            setupYearButtons(); // обновить цвета кнопок
+            document.querySelectorAll(".cur-year").forEach(el => el.innerText = currentYear);
+            selectDistrict(selectedFid, false);
+        };
+        container.appendChild(btn);
+    });
+}
+
 async function loadDataFromBackend() {
     try {
         const res = await fetch(`${API_BASE}/api/data`);
@@ -79,11 +103,8 @@ async function loadDataFromBackend() {
             kraiKolByYear[b.year] = b.total_participants;
         });
 
-        slider.min = years[0];
-        slider.max = years[years.length - 1];
         currentYear = years[years.length - 1];
-        slider.value = currentYear;
-        document.getElementById("year-label").innerText = currentYear;
+        setupYearButtons();
 
         yearFromSel.innerHTML = "";
         yearToSel.innerHTML = "";
@@ -213,12 +234,15 @@ function updateLegend(mode) {
     div.innerHTML = html;
 }
 
+let layerByFidMap = {};
+
 function renderMap(fitView = false) {
     if (geoLayer) map.removeLayer(geoLayer);
     badgeMarkers.forEach(m => map.removeLayer(m));
     labelMarkers.forEach(m => map.removeLayer(m));
     badgeMarkers = [];
     labelMarkers = [];
+    layerByFidMap = {};
 
     const mode = document.getElementById("mode-select").value;
     const showCircles = document.getElementById("chk-circles").checked;
@@ -260,6 +284,7 @@ function renderMap(fitView = false) {
         },
         onEachFeature: function (feature, layer) {
             const fid = feature.properties.fid;
+            layerByFidMap[fid] = layer;
             const d = districtById[fid];
             const avg = d.avg[currentYear] ?? "нет данных";
             const kol = d.kol[currentYear] ?? "нет данных";
@@ -280,7 +305,6 @@ function renderMap(fitView = false) {
 
             if (showCircles && d.kol[currentYear]) {
                 const val = d.kol[currentYear];
-                // Масштабируем размер значка под экстремальные значения (до 244)
                 const size = val > 100 ? 36 : val > 30 ? 30 : val > 10 ? 24 : 18;
                 const icon = L.divIcon({
                     className: "",
@@ -308,19 +332,11 @@ function renderMap(fitView = false) {
     }).addTo(map);
 
     // Авто-зум к выбранному району
-    if (fitView && selectedFid !== "all" && layerByFid(selectedFid)) {
-        map.fitBounds(layerByFid(selectedFid).getBounds(), { maxZoom: 9, padding: [30, 30] });
+    if (fitView && selectedFid !== "all" && layerByFidMap[selectedFid]) {
+        map.fitBounds(layerByFidMap[selectedFid].getBounds(), { maxZoom: 9, padding: [30, 30] });
     } else if (fitView && selectedFid === "all" && geoLayer.getLayers().length > 0) {
         map.fitBounds(geoLayer.getBounds(), { maxZoom: 7 });
     }
-}
-
-function layerByFid(fid) {
-    let targetLayer = null;
-    geoLayer.eachLayer(layer => {
-        if (layer.feature.properties.fid == fid) targetLayer = layer;
-    });
-    return targetLayer;
 }
 
 const scoreChart = new Chart(document.getElementById("scoreChart"), {
@@ -401,80 +417,4 @@ function selectDistrict(fid, zoomTo = false) {
     const d = districtById[fid];
     const y1 = yearFromSel.value, y2 = yearToSel.value;
     document.getElementById("region-name").innerText = d.name;
-    const typ = getTypology(fid);
-    const spread = getSpread(fid);
-    document.getElementById("region-type").innerText = `${typ.name} | Размах: ${spread} б.`;
-
-    document.getElementById("val-avg").innerText = d.avg[currentYear] ?? "нет данных";
-    document.getElementById("val-kol").innerText = d.kol[currentYear] ? d.kol[currentYear] + " чел." : "нет данных";
-    document.getElementById("rank-label").innerText = "Рейтинг в крае";
-    document.getElementById("val-rank").innerText = getRank(fid, currentYear);
-
-    const scoreDatasets = [
-        { label: d.name, data: years.map(y => d.avg[y]), borderColor: "#27ae60", backgroundColor: "rgba(39,174,96,0.12)", fill: true, tension: 0.3, borderWidth: 2.5 }
-    ];
-    const partDatasets = [
-        { label: d.name + " (уч.)", data: years.map(y => d.kol[y]), backgroundColor: "#30336b" }
-    ];
-
-    if (compareFid !== "none" && districtById[compareFid]) {
-        const cd = districtById[compareFid];
-        scoreDatasets.push({ label: cd.name, data: years.map(y => cd.avg[y]), borderColor: "#8e44ad", backgroundColor: "transparent", borderWidth: 2.5, tension: 0.3 });
-        partDatasets.push({ label: cd.name + " (уч.)", data: years.map(y => cd.kol[y]), backgroundColor: "#9b59b6" });
-    }
-
-    scoreDatasets.push({
-        label: "Средний по краю", data: years.map(y => kraiAvgByYear[y]), borderColor: "#7f8c8d", borderDash: [5, 5], borderWidth: 1.8, pointRadius: 2, fill: false
-    });
-
-    scoreChart.data.datasets = scoreDatasets;
-    scoreChart.update();
-
-    partChart.data.datasets = partDatasets;
-    partChart.update();
-
-    renderMap(zoomTo);
-}
-
-function downloadExcelReport() {
-    window.location.href = `${API_BASE}/api/report/excel`;
-}
-
-document.getElementById("mode-select").addEventListener("change", () => renderMap(false));
-document.getElementById("chk-circles").addEventListener("change", () => renderMap(false));
-document.getElementById("chk-labels").addEventListener("change", () => renderMap(false));
-document.getElementById("chk-isolate").addEventListener("change", () => renderMap(true));
-yearFromSel.addEventListener("change", () => renderMap(false));
-yearToSel.addEventListener("change", () => renderMap(false));
-
-distSelect.addEventListener("change", (e) => {
-    const val = e.target.value === "all" ? "all" : parseInt(e.target.value);
-    selectDistrict(val, true);
-});
-compSelect.addEventListener("change", (e) => {
-    compareFid = e.target.value;
-    selectDistrict(selectedFid, false);
-});
-
-slider.addEventListener("input", (e) => {
-    currentYear = parseInt(e.target.value);
-    document.getElementById("year-label").innerText = currentYear;
-    renderMap(false);
-});
-
-let timer = null;
-const playBtn = document.getElementById("play-btn");
-playBtn.addEventListener("click", () => {
-    if (timer) { clearInterval(timer); timer = null; playBtn.innerText = "▶ Пуск"; }
-    else {
-        playBtn.innerText = "⏸ Пауза";
-        timer = setInterval(() => {
-            let idx = years.indexOf(parseInt(slider.value));
-            let nextYear = (idx >= 0 && idx < years.length - 1) ? years[idx + 1] : years[0];
-            slider.value = nextYear;
-            slider.dispatchEvent(new Event("input"));
-        }, 1200);
-    }
-});
-
-loadDataFromBackend();
+    const typ
