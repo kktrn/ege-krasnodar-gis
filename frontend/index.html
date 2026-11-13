@@ -10,7 +10,6 @@
 </head>
 <body>
 
-<!-- Переключатель вкладок -->
 <div class="tabs-bar">
     <button class="tab-btn active" id="tab-map-btn" onclick="switchTab('map')">🗺️ Карта и аналитика</button>
     <button class="tab-btn" id="tab-analytics-btn" onclick="switchTab('analytics')">📊 Типология МО (Научная справка)</button>
@@ -57,8 +56,7 @@
                 <input type="checkbox" id="chk-labels"> Подписи
             </label>
 
-            <!-- Кнопка переключения темной/светлой темы -->
-            <button class="btn btn-theme" onclick="toggleTheme()" id="theme-btn" title="Сменить тему оформления">🌙 Тёмная</button>
+            <button class="btn btn-theme" onclick="toggleTheme()" id="theme-btn">🌙 Тёмная</button>
         </div>
     </div>
 
@@ -70,51 +68,49 @@
     </div>
     <div class="clean-attr">Картографическая основа: © OpenStreetMap contributors, Esri</div>
 
-       <div class="time-panel" id="time-panel">
-        <button class="play-btn" id="play-btn" title="Анимация по годам">▶ Пуск</button>
-        <div id="years-buttons-container" style="display: flex; gap: 4px; overflow-x: auto; max-width: 350px; padding: 2px;">
-            <!-- Кнопки годов сгенерируются автоматически скриптом -->
-        </div>
+    <div class="time-panel" id="time-panel">
+        <button class="play-btn" id="play-btn">▶ Пуск</button>
+        <div id="years-buttons-container" style="display: flex; gap: 4px; overflow-x: auto; max-width: 350px;"></div>
     </div>
+</div>
 
-<!-- Вторая вкладка: Научная справка и классификация районов -->
 <div id="analytics-view">
     <h2>Научно-методическая справка: Классификация и типология муниципальных образований</h2>
-    <p>В данном разделе представлена матрица типологического районирования результатов ЕГЭ по географии в Краснодарском крае на основе сопряженного анализа динамики среднего балла и изменения контингента участников за выбранный период.</p>
+    <p>Матрица типологического районирования результатов ЕГЭ по географии в Краснодарском крае на основе сопряженного анализа динамики среднего балла и изменения контингента участников.</p>
     
     <table class="typology-table">
         <thead>
             <tr>
                 <th>Тип муниципального образования</th>
-                <th>Критерии выделения (условия)</th>
+                <th>Критерии выделения</th>
                 <th>Характеристика образовательной среды</th>
             </tr>
         </thead>
         <tbody>
             <tr>
                 <td><strong style="color: #1a9850;">Тип 1: Устойчивый рост</strong></td>
-                <td>Рост участников (>0) и рост среднего балла (>+5 баллов)</td>
-                <td>Высокая эффективность профильного обучения географии, рост популярности предмета при улучшении качества подготовки.</td>
+                <td>Рост участников (>0) и рост балла (>+5)</td>
+                <td>Высокая эффективность профильного обучения, рост популярности предмета.</td>
             </tr>
             <tr>
                 <td><strong style="color: #e67e22;">Тип 2: Рост популярности при снижении балла</strong></td>
-                <td>Рост участников (>+5) при снижении среднего балла (&lt;-3)</td>
-                <td>Массовый охват экзаменом при снижении селективности отбора выпускников, сдающих географию по выбору.</td>
+                <td>Рост участников (>+5) при снижении балла (&lt;-3)</td>
+                <td>Массовый охват экзаменом при снижении селективности отбора.</td>
             </tr>
             <tr>
-                <td><strong style="color: #3498db;">Тип 3: Снижение числа участников при росте балла</strong></td>
-                <td>Сокращение участников (&lt;0) при росте среднего балла (>+5)</td>
-                <td>Переход на углубленную подготовку меньшего числа мотивированных учащихся (высокая результативность элитных групп).</td>
+                <td><strong style="color: #3498db;">Тип 3: Сниж. участников при росте балла</strong></td>
+                <td>Сокращение участников (&lt;0) при росте балла (>+5)</td>
+                <td>Углубленная подготовка меньшего числа мотивированных учащихся.</td>
             </tr>
             <tr>
                 <td><strong style="color: #d35400;">Тип 4: Стабильность показателей</strong></td>
-                <td>Колебания балла и участников в пределах ±5%</td>
-                <td>Инертная образовательная среда с устоявшимися результатами обучения без резких качественных сдвигов.</td>
+                <td>Колебания в пределах ±5%</td>
+                <td>Инертная среда с устоявшимися результатами без резких сдвигов.</td>
             </tr>
         </tbody>
     </table>
     <br>
-    <button class="btn btn-blue" onclick="switchTab('map')">← Вернуться к интерактивной карте</button>
+    <button class="btn btn-blue" onclick="switchTab('map')">← Вернуться к карте</button>
 </div>
 
 <div id="sidebar">
@@ -128,9 +124,7 @@
 
     <div class="isolate-bar" id="isolate-bar" style="display:none;">
         <span>🔍 Режим фокуса на муниципалитете:</span>
-        <label style="cursor:pointer;">
-            <input type="checkbox" id="chk-isolate"> Оставить только его шейп
-        </label>
+        <label style="cursor:pointer;"><input type="checkbox" id="chk-isolate"> Оставить только его</label>
     </div>
 
     <div class="stat-cards">
@@ -152,8 +146,8 @@
         <button class="btn btn-green" onclick="downloadExcelReport()" style="width:100%; justify-content:center;">📥 Скачать сводный отчет Excel (.xlsx)</button>
     </div>
 
-    <div class="chart-box"><canvas id="scoreChart" height="150"></canvas></div>
-    <div class="chart-box"><canvas id="partChart" height="135"></canvas></div>
+    <div class="chart-box"><canvas id="scoreChart" height="145"></canvas></div>
+    <div class="chart-box"><canvas id="partChart" height="130"></canvas></div>
 
     <div class="top-tables">
         <div class="top-box">
@@ -168,7 +162,7 @@
 
     <div class="author-footer">
         ВКР: «Создание интерактивной карты результатов ЕГЭ по географии в Краснодарском крае»<br>
-        <b>Архитектура:</b> PostgreSQL (Neon) + FastAPI (Python) + Leaflet Web-GIS
+        <b>Архитектура:</b> PostgreSQL (Neon) + FastAPI (Python) + Leaflet
     </div>
 </div>
 
