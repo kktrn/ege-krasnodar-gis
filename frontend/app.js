@@ -16,14 +16,6 @@ const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
     referrerPolicy: "strict-origin-when-cross-origin"
 }).addTo(map);
 
-const esriLight = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}");
-
-L.control.layers(
-    { "Стандартная карта (OSM)": osm, "Светлая аналитическая (Esri)": esriLight },
-    null,
-    { position: "topright" }
-).addTo(map);
-
 const distSelect = document.getElementById("district-select");
 const compSelect = document.getElementById("compare-select");
 const yearFromSel = document.getElementById("year-from");
