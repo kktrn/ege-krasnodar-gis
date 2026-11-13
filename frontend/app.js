@@ -9,10 +9,11 @@ let kraiKolByYear = {};
 let currentYear = 2025;
 let selectedFid = "all";
 let compareFid = "none";
+let activeLegendBin = null;
 
 const map = L.map("map", { attributionControl: false }).setView([45.15, 39.1], 7);
 
-const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
     referrerPolicy: "strict-origin-when-cross-origin"
 }).addTo(map);
 
@@ -27,7 +28,28 @@ let badgeMarkers = [];
 let labelMarkers = [];
 let layerByFidMap = {};
 
-// Переключение вкладок графиков
+function triggerAdminUpload() {
+    document.getElementById("hidden-excel-input").click();
+}
+async function uploadNewExcel(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+        const res = await fetch(`${API_BASE}/api/upload-excel`, { method: "POST", body: formData });
+        const data = await res.json();
+        if (res.ok) {
+            alert("✅ " + data.message);
+            loadDataFromBackend();
+        } else {
+            alert("Ошибка обновления БД: " + data.detail);
+        }
+    } catch (e) {
+        alert("Ошибка соединения с сервером");
+    }
+}
+
 function switchChartTab(tabId, btnEl) {
     document.querySelectorAll(".c-tab").forEach(b => b.classList.remove("active"));
     btnEl.classList.add("active");
@@ -36,7 +58,6 @@ function switchChartTab(tabId, btnEl) {
     document.getElementById("chart-pane-scatter").style.display = tabId === "scatter" ? "flex" : "none";
 }
 
-// Управление плашками в левом нижнем углу
 let methodExpanded = true;
 function toggleMethodBody() {
     methodExpanded = !methodExpanded;
@@ -50,6 +71,74 @@ function closeDistrictCard() {
     document.getElementById("district-popup-card").style.display = "none";
 }
 
+let insightExpanded = true;
+function toggleInsightBody() {
+    insightExpanded = !insightExpanded;
+    document.getElementById("auto-insight-text").style.display = insightExpanded ? "block" : "none";
+    document.getElementById("insight-toggle-lbl").innerText = insightExpanded ? "Свернуть ▲" : "Развернуть ▼";
+}
+
+function getNeighborsAvg(fid, year) {
+    const d = districtById[fid];
+    if (!d || !d.neighbors || !d.neighbors.length) return null;
+    const vals = d.neighbors
+        .map(nfid => districtById[nfid]?.avg[year])
+        .filter(v => v !== null && v !== undefined);
+    return vals.length ? +(vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1) : null;
+}
+
+function getPearsonCorr(fid) {
+    const pYears = getSelectedPeriodYears();
+    const pairs = [];
+    pYears.forEach(y => {
+        const k = fid === "all" ? kraiKolByYear[y] : districtById[fid]?.kol[y];
+        const a = fid === "all" ? kraiAvgByYear[y] : districtById[fid]?.avg[y];
+        if (k !== null && k !== undefined && a !== null && a !== undefined) pairs.push([k, a]);
+    });
+    if (pairs.length < 3) return null;
+    const n = pairs.length;
+    const meanX = pairs.reduce((s, p) => s + p[0], 0) / n;
+    const meanY = pairs.reduce((s, p) => s + p[1], 0) / n;
+    let num = 0, denX = 0, denY = 0;
+    pairs.forEach(([x, y]) => {
+        num += (x - meanX) * (y - meanY);
+        denX += (x - meanX) ** 2;
+        denY += (y - meanY) ** 2;
+    });
+    if (denX === 0 || denY === 0) return 0;
+    return +(num / Math.sqrt(denX * denY)).toFixed(2);
+}
+
+function generateAutoInsight(fid) {
+    const y1 = Math.min(parseInt(yearFromSel.value), parseInt(yearToSel.value));
+    const y2 = Math.max(parseInt(yearFromSel.value), parseInt(yearToSel.value));
+    const r = getPearsonCorr(fid);
+    const rText = r !== null
+        ? (r < -0.4 ? `Отмечается обратная корреляция (r = ${r}): расширение контингента сопровождается снижением среднего балла.`
+           : r > 0.4 ? `Наблюдается прямая связь (r = ${r}): рост числа сдающих идет параллельно с ростом качества подготовки.`
+           : `Статистическая зависимость балла от массовости экзамена слабая (r = ${r}).`)
+        : "";
+
+    if (fid === "all") {
+        const kDyn = +(kraiAvgByYear[y2] - kraiAvgByYear[y1]).toFixed(1);
+        const aboveCnt = Object.values(districtById).filter(d => d.avg[currentYear] >= kraiAvgByYear[currentYear]).length;
+        return `В ${currentYear} г. среднекраевой балл составил ${kraiAvgByYear[currentYear]} б. (${aboveCnt} из 44 МО превышают региональную норму). За ${y1}–${y2} гг. общая динамика края составила ${kDyn > 0 ? "+" : ""}${kDyn} б. ${rText}`;
+    }
+
+    const d = districtById[fid];
+    const typ = getTypology(fid).name;
+    const dynA = getDynAvg(fid);
+    const spread = getSpread(fid);
+    const nAvg = getNeighborsAvg(fid, currentYear);
+    const curAvg = d.avg[currentYear];
+    let nText = "";
+    if (nAvg && curAvg) {
+        const diffN = +(curAvg - nAvg).toFixed(1);
+        nText = `По отношению к граничащим районам (${nAvg} б.) результат ${diffN >= 0 ? "выше на +" + diffN : "ниже на " + diffN} б.`;
+    }
+    return `По итогам ${y1}–${y2} гг. ${d.name} относится к категории «${typ}» (динамика ${dynA > 0 ? "+" : ""}${dynA} б., размах ${spread} б.). ${nText} ${rText}`;
+}
+
 function updateDistrictBottomCard(fid) {
     const card = document.getElementById("district-popup-card");
     if (fid === "all" || !districtById[fid]) {
@@ -57,12 +146,14 @@ function updateDistrictBottomCard(fid) {
         return;
     }
     const d = districtById[fid];
-    const y1 = yearFromSel.value, y2 = yearToSel.value;
+    const y1 = Math.min(parseInt(yearFromSel.value), parseInt(yearToSel.value));
+    const y2 = Math.max(parseInt(yearFromSel.value), parseInt(yearToSel.value));
     const avg = d.avg[currentYear] ?? "нет данных";
     const kol = d.kol[currentYear] ?? "нет данных";
     const dAvg = getDynAvg(fid);
     const spread = getSpread(fid);
     const typ = getTypology(fid);
+    const nAvg = getNeighborsAvg(fid, currentYear);
 
     document.getElementById("fc-district-title").innerText = `📍 ${d.name}`;
     document.getElementById("fc-district-body").innerHTML = `
@@ -71,7 +162,7 @@ function updateDistrictBottomCard(fid) {
             <div>Ср. балл (${currentYear}): <b>${avg}</b></div>
             <div>Участников (${currentYear}): <b>${kol} чел.</b></div>
             <div>Динамика (${y1}–${y2}): <b>${dAvg > 0 ? "+" + dAvg : dAvg} б.</b></div>
-            <div>Размах колебаний: <b>${spread} б.</b></div>
+            <div>Ср. балл соседей: <b>${nAvg ? nAvg + " б." : "—"}</b></div>
         </div>
     `;
     card.style.display = "block";
@@ -81,11 +172,13 @@ function updateMethodBanner(mode) {
     const banner = document.getElementById("method-banner");
     const title = document.getElementById("method-title");
     const body = document.getElementById("method-body");
+    const y1 = Math.min(parseInt(yearFromSel.value), parseInt(yearToSel.value));
+    const y2 = Math.max(parseInt(yearFromSel.value), parseInt(yearToSel.value));
 
     if (mode === "typology") {
         banner.style.display = "block";
         title.innerText = "ℹ️ Методология: Типология МО";
-        body.innerHTML = `Классификация по динамике балла и участников (${yearFromSel.value}–${yearToSel.value} гг.):
+        body.innerHTML = `Классификация по динамике балла и участников (${y1}–${y2} гг.):
             <ul>
                 <li><b style="color:#1a9850;">Тип 1 (Устойчивый рост):</b> Рост уч. (>0) и рост балла (>+5 б.).</li>
                 <li><b style="color:#e67e22;">Тип 2 (Рост уч. при сниж. балла):</b> Рост уч. (>+5) при снижении балла (<-3 б.).</li>
@@ -95,7 +188,7 @@ function updateMethodBanner(mode) {
     } else if (mode === "stability") {
         banner.style.display = "block";
         title.innerText = "ℹ️ Методология: Устойчивость результатов";
-        body.innerHTML = `Оценка волатильности через <b>размах колебаний</b> ($R = Max - Min$ за ${yearFromSel.value}–${yearToSel.value} гг.):
+        body.innerHTML = `Оценка волатильности через <b>размах колебаний</b> ($R = Max - Min$ за ${y1}–${y2} гг.):
             <ul>
                 <li><b style="color:#2ecc71;">Стабильные (< 7 б.):</b> Устойчивая образовательная среда.</li>
                 <li><b style="color:#f1c40f;">Средние (7–15 б.):</b> Умеренные межгодовые колебания.</li>
@@ -241,6 +334,22 @@ function getColorStability(s) {
     return s < 7 ? "#2ecc71" : s <= 15 ? "#f1c40f" : "#e74c3c";
 }
 
+function getFeatureFillColor(fid, mode) {
+    const d = districtById[fid];
+    if (mode === "avg") return getColorAvg(d.avg[currentYear]);
+    if (mode === "kol") return getColorKol(d.kol[currentYear]);
+    if (mode === "dyn_avg") return getColorDynAvg(getDynAvg(fid));
+    if (mode === "dyn_kol") return getColorDynKol(getDynKol(fid));
+    if (mode === "typology") return getTypology(fid).color;
+    if (mode === "stability") return getColorStability(getSpread(fid));
+    return "#ccc";
+}
+
+function toggleLegendFilter(colorHex) {
+    activeLegendBin = (activeLegendBin === colorHex) ? null : colorHex;
+    renderMap(false);
+}
+
 const legend = L.control({ position: "bottomright" });
 legend.onAdd = function () { return L.DomUtil.create("div", "legend"); };
 legend.addTo(map);
@@ -250,39 +359,44 @@ function updateLegend(mode) {
     if (!div) return;
     const y1 = Math.min(parseInt(yearFromSel.value), parseInt(yearToSel.value));
     const y2 = Math.max(parseInt(yearFromSel.value), parseInt(yearToSel.value));
+
+    const row = (col, text) => `<div class="legend-row ${activeLegendBin === col ? 'active-filter' : ''}" onclick="toggleLegendFilter('${col}')"><i style="background:${col}"></i><span>${text}</span></div>`;
+
     let html = "";
     if (mode === "avg") {
-        html = `<b>Средний балл ЕГЭ (${currentYear} г.)</b><br>` +
-            '<i style="background:#d73027"></i> менее 45<br><i style="background:#f46d43"></i> 46 – 55<br>' +
-            '<i style="background:#fee08b"></i> 56 – 65<br><i style="background:#a6d96a"></i> 66 – 75<br>' +
-            '<i style="background:#66bd63"></i> 76 – 85<br><i style="background:#1a9850"></i> более 85';
+        html = `<b>Средний балл ЕГЭ (${currentYear} г.)</b>` +
+            row("#d73027", "менее 45") + row("#f46d43", "46 – 55") +
+            row("#fee08b", "56 – 65") + row("#a6d96a", "66 – 75") +
+            row("#66bd63", "76 – 85") + row("#1a9850", "более 85");
     } else if (mode === "kol") {
-        html = `<b>Количество участников (${currentYear} г.)</b><br>` +
-            '<i style="background:#ffffcc"></i> 1 – 3 чел.<br><i style="background:#7fcdbb"></i> 4 – 8 чел.<br>' +
-            '<i style="background:#41b6c4"></i> 9 – 15 чел.<br><i style="background:#225ea8"></i> 16 – 25 чел.<br>' +
-            '<i style="background:#081d58"></i> 26 – 50 чел.<br><i style="background:#4a0e4e"></i> > 50 (крупные центры)';
+        html = `<b>Количество участников (${currentYear} г.)</b>` +
+            row("#ffffcc", "1 – 3 чел.") + row("#7fcdbb", "4 – 8 чел.") +
+            row("#41b6c4", "9 – 15 чел.") + row("#225ea8", "16 – 25 чел.") +
+            row("#081d58", "26 – 50 чел.") + row("#4a0e4e", "> 50 (крупные центры)");
     } else if (mode === "dyn_avg") {
-        html = `<b>Динамика балла (${y2} к ${y1} г.)</b><br>` +
-            '<i style="background:#d73027"></i> менее -15<br><i style="background:#fc8d59"></i> -15 .. -5<br>' +
-            '<i style="background:#ffffbf"></i> -5 .. +5<br><i style="background:#91cf60"></i> +5 .. +15<br>' +
-            '<i style="background:#1a9850"></i> более +15';
+        html = `<b>Динамика балла (${y2} к ${y1} г.)</b>` +
+            row("#d73027", "менее -15") + row("#fc8d59", "-15 .. -5") +
+            row("#ffffbf", "-5 .. +5") + row("#91cf60", "+5 .. +15") +
+            row("#1a9850", "более +15");
     } else if (mode === "dyn_kol") {
-        html = `<b>Динамика уч. (${y2} к ${y1} г.)</b><br>` +
-            '<i style="background:#d73027"></i> менее -5<br><i style="background:#fc8d59"></i> -5 .. 0<br>' +
-            '<i style="background:#ffffbf"></i> 0 .. +5<br><i style="background:#91cf60"></i> +5 .. +20<br>' +
-            '<i style="background:#1a9850"></i> более +20';
+        html = `<b>Динамика уч. (${y2} к ${y1} г.)</b>` +
+            row("#d73027", "менее -5") + row("#fc8d59", "-5 .. 0") +
+            row("#ffffbf", "0 .. +5") + row("#91cf60", "+5 .. +20") +
+            row("#1a9850", "более +20");
     } else if (mode === "typology") {
-        html = `<b>Типология МО (${y1}–${y2} гг.)</b><br>` +
-            '<i style="background:#1a9850"></i> Тип 1: Устойчивый рост<br>' +
-            '<i style="background:#e67e22"></i> Тип 2: Рост уч. при сниж. балла<br>' +
-            '<i style="background:#3498db"></i> Тип 3: Сниж. уч. при росте балла<br>' +
-            '<i style="background:#fee08b"></i> Тип 4: Стабильность';
+        html = `<b>Типология МО (${y1}–${y2} гг.)</b>` +
+            row("#1a9850", "Тип 1: Устойчивый рост") +
+            row("#e67e22", "Тип 2: Рост уч. при сниж. балла") +
+            row("#3498db", "Тип 3: Сниж. уч. при росте балла") +
+            row("#fee08b", "Тип 4: Стабильность");
     } else if (mode === "stability") {
-        html = `<b>Размах колебаний (${y1}–${y2} гг.)</b><br>` +
-            '<i style="background:#2ecc71"></i> Стабильные (< 7 б.)<br>' +
-            '<i style="background:#f1c40f"></i> Средние (7–15 б.)<br>' +
-            '<i style="background:#e74c3c"></i> Нестабильные (> 15 б.)';
+        html = `<b>Размах колебаний (${y1}–${y2} гг.)</b>` +
+            row("#2ecc71", "Стабильные (< 7 б.)") +
+            row("#f1c40f", "Средние (7–15 б.)") +
+            row("#e74c3c", "Нестабильные (> 15 б.)");
     }
+
+    html += `<div class="legend-hint">💡 Кликните на интервал для фильтрации карты</div>`;
 
     if (document.getElementById("chk-circles").checked) {
         html += '<hr style="margin:6px 0; border:0; border-top:1px solid #e5e5ea;">' +
@@ -323,21 +437,15 @@ function renderMap(fitView = false) {
     geoLayer = L.geoJSON({ type: "FeatureCollection", features: featuresToDraw }, {
         style: function (feature) {
             const fid = feature.properties.fid;
-            const d = districtById[fid];
-            let fill = "#ccc";
-            if (mode === "avg") fill = getColorAvg(d.avg[currentYear]);
-            else if (mode === "kol") fill = getColorKol(d.kol[currentYear]);
-            else if (mode === "dyn_avg") fill = getColorDynAvg(getDynAvg(fid));
-            else if (mode === "dyn_kol") fill = getColorDynKol(getDynKol(fid));
-            else if (mode === "typology") fill = getTypology(fid).color;
-            else if (mode === "stability") fill = getColorStability(getSpread(fid));
-
+            const fill = getFeatureFillColor(fid, mode);
             const isSel = (fid == selectedFid || fid == compareFid);
+            const matchesFilter = !activeLegendBin || (fill.toLowerCase() === activeLegendBin.toLowerCase());
+
             return {
                 fillColor: fill,
-                weight: isSel ? 3 : 1.1,
+                weight: isSel ? 3 : (matchesFilter ? 1.2 : 0.6),
                 color: fid == compareFid ? "#8e44ad" : (fid == selectedFid ? "#1d1d1f" : "#6e6e73"),
-                fillOpacity: 0.84
+                fillOpacity: matchesFilter ? 0.86 : 0.14
             };
         },
         onEachFeature: function (feature, layer) {
@@ -450,7 +558,6 @@ function updateTopTables() {
     ).join("");
 }
 
-// Раскрашенная по типам матрица с фильтрацией экстремума Краснодара (масштаб 0-60 чел.)
 function updateScatterChart() {
     const hideKrasnodar = document.getElementById("chk-hide-krasnodar").checked;
     const groups = {
@@ -499,6 +606,10 @@ function selectDistrict(fid, zoomTo = false) {
     document.querySelectorAll(".cur-year").forEach(el => el.innerText = currentYear);
     updateDistrictBottomCard(fid);
 
+    const corrVal = getPearsonCorr(fid);
+    document.getElementById("corr-pill").innerText = corrVal !== null ? `Корреляция r: ${corrVal}` : "Корреляция r: —";
+    document.getElementById("auto-insight-text").innerText = generateAutoInsight(fid);
+
     scoreChart.data.labels = years;
     partChart.data.labels = years;
     devChart.data.labels = years;
@@ -508,6 +619,7 @@ function selectDistrict(fid, zoomTo = false) {
         document.getElementById("chk-isolate").checked = false;
         document.getElementById("region-name").innerText = "Весь Краснодарский край";
         document.getElementById("region-type").innerText = `Сводная статистика по 44 муниципальным образованиям`;
+        document.getElementById("neighbors-pill").innerText = "Все 44 МО края";
 
         const kAvg = kraiAvgByYear[currentYear];
         const kKol = kraiKolByYear[currentYear];
@@ -572,6 +684,14 @@ function selectDistrict(fid, zoomTo = false) {
     const curKol = d.kol[currentYear];
     const kAvg = kraiAvgByYear[currentYear];
     const diffKrai = (curAvg && kAvg) ? +(curAvg - kAvg).toFixed(1) : null;
+
+    const nAvg = getNeighborsAvg(fid, currentYear);
+    if (nAvg && curAvg) {
+        const dN = +(curAvg - nAvg).toFixed(1);
+        document.getElementById("neighbors-pill").innerText = `К соседям (${nAvg}): ${dN > 0 ? "+" : ""}${dN} б.`;
+    } else {
+        document.getElementById("neighbors-pill").innerText = "Соседи: —";
+    }
 
     document.getElementById("val-avg").innerText = curAvg ?? "нет данных";
     document.getElementById("sub-avg").innerText = diffKrai !== null ? `${diffKrai > 0 ? "+" : ""}${diffKrai} б. к краю (${kAvg})` : `по краю: ${kAvg}`;
@@ -682,6 +802,7 @@ function exportCustomExcel(targetFid, compFid, opts) {
             row["Средний балл по краю"] = kraiAvgByYear[y];
             const v = districtById[targetFid].avg[y];
             row["Отклонение от края (±)"] = v ? +(v - kraiAvgByYear[y]).toFixed(1) : "—";
+            row["Средний балл соседних МО"] = getNeighborsAvg(targetFid, y) ?? "—";
         }
         if (opts.incKol) {
             row[`Участников (${mainName}), чел.`] = targetFid === "all" ? kraiKolByYear[y] : (districtById[targetFid].kol[y] ?? "—");
@@ -707,6 +828,7 @@ function exportCustomExcel(targetFid, compFid, opts) {
                     r["Среднее за период"] = getPeriodNorm(d.fid) ?? "—";
                     r["Динамика балла"] = getDynAvg(d.fid);
                     r["Размах колебаний"] = getSpread(d.fid);
+                    r["Корреляция Пирсона (r)"] = getPearsonCorr(d.fid) ?? "—";
                     r["Типология МО"] = getTypology(d.fid).name;
                 }
                 return r;
@@ -735,21 +857,11 @@ function exportCustomPDF(targetFid, compFid, opts) {
 
     let dynBlock = "";
     if (opts.incDyn) {
-        if (targetFid === "all") {
-            dynBlock = `<div class="summary-box">
-                <div><b>Объект анализа:</b> Все 44 МО Краснодарского края</div>
-                <div><b>Анализируемый период:</b> ${y1}–${y2} гг.</div>
-                <div><b>Средний балл (${currentYear}):</b> ${kraiAvgByYear[currentYear]} б.</div>
-                <div><b>Всего участников (${currentYear}):</b> ${kraiKolByYear[currentYear]} чел.</div>
+        const insightText = generateAutoInsight(targetFid);
+        dynBlock = `
+            <div style="background:#f0f7ff; border-left:4px solid #0071e3; padding:12px 16px; border-radius:6px; font-size:12.5px; margin-bottom:16px; line-height:1.45;">
+                <b>📊 Аналитическая записка:</b> ${insightText}
             </div>`;
-        } else {
-            dynBlock = `<div class="summary-box">
-                <div><b>Типология МО:</b> ${getTypology(targetFid).name}</div>
-                <div><b>Среднее за период (${y1}–${y2}):</b> ${getPeriodNorm(targetFid)} б.</div>
-                <div><b>Динамика балла (${y1}–${y2}):</b> ${getDynAvg(targetFid) > 0 ? "+" : ""}${getDynAvg(targetFid)} б.</div>
-                <div><b>Размах колебаний:</b> ${getSpread(targetFid)} б. | <b>Рейтинг (${currentYear}):</b> ${getRank(targetFid, currentYear)}</div>
-            </div>`;
-        }
     }
 
     let tableHeaders = `<th>Год</th>`;
@@ -757,7 +869,7 @@ function exportCustomPDF(targetFid, compFid, opts) {
         tableHeaders += `<th>Ср. балл (${mainName})</th>`;
         if (compName) tableHeaders += `<th>Ср. балл (${compName})</th>`;
     }
-    if (opts.incKrai && targetFid !== "all") tableHeaders += `<th>Средний по краю</th><th>Отклонение (±)</th>`;
+    if (opts.incKrai && targetFid !== "all") tableHeaders += `<th>Средний по краю</th><th>Отклонение (±)</th><th>Ср. по соседям</th>`;
     if (opts.incKol) {
         tableHeaders += `<th>Участников (${mainName})</th>`;
         if (compName) tableHeaders += `<th>Участников (${compName})</th>`;
@@ -774,7 +886,7 @@ function exportCustomPDF(targetFid, compFid, opts) {
         if (opts.incKrai && targetFid !== "all") {
             const v = districtById[targetFid].avg[y];
             const diff = v ? +(v - kraiAvgByYear[y]).toFixed(1) : "—";
-            tableRows += `<td>${kraiAvgByYear[y]}</td><td>${diff > 0 ? "+" + diff : diff}</td>`;
+            tableRows += `<td>${kraiAvgByYear[y]}</td><td>${diff > 0 ? "+" + diff : diff}</td><td>${getNeighborsAvg(targetFid, y) ?? "—"}</td>`;
         }
         if (opts.incKol) {
             const k = targetFid === "all" ? kraiKolByYear[y] : (districtById[targetFid].kol[y] ?? "—");
@@ -788,13 +900,14 @@ function exportCustomPDF(targetFid, compFid, opts) {
     if (opts.incAllMo) {
         const sortedMo = Object.values(districtById).sort((a, b) => a.name.localeCompare(b.name));
         allMoHtml = `<h3 style="margin-top:24px;">Сводная ведомость по муниципальным образованиям (${currentYear} г.)</h3>
-        <table><thead><tr><th>Муниципальное образование</th><th>Участников (${currentYear})</th><th>Ср. балл (${currentYear})</th><th>Динамика (${y1}–${y2})</th><th>Размах</th><th>Типология</th></tr></thead><tbody>` +
+        <table><thead><tr><th>Муниципальное образование</th><th>Участников (${currentYear})</th><th>Ср. балл (${currentYear})</th><th>Динамика (${y1}–${y2})</th><th>Размах</th><th>Корр. r</th><th>Типология</th></tr></thead><tbody>` +
         sortedMo.map(d => `<tr>
             <td style="text-align:left;">${d.name}</td>
             <td>${d.kol[currentYear] ?? "—"}</td>
             <td><b>${d.avg[currentYear] ?? "—"}</b></td>
             <td>${getDynAvg(d.fid) > 0 ? "+" : ""}${getDynAvg(d.fid)}</td>
             <td>${getSpread(d.fid)}</td>
+            <td>${getPearsonCorr(d.fid) ?? "—"}</td>
             <td style="text-align:left;">${getTypology(d.fid).name}</td>
         </tr>`).join("") + `</tbody></table>`;
     }
@@ -817,7 +930,6 @@ function exportCustomPDF(targetFid, compFid, opts) {
             .doc-header { border-bottom: 2px solid #1d1d1f; padding-bottom: 12px; margin-bottom: 18px; display:flex; justify-content:space-between; align-items:flex-end; }
             .doc-header h1 { margin: 0; font-size: 20px; }
             .doc-sub { font-size: 12px; color: #6e6e73; margin-top: 4px; }
-            .summary-box { background: #f5f5f7; border-radius: 10px; padding: 12px 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12.5px; margin-bottom: 18px; border: 1px solid #e5e5ea; }
             h3 { font-size: 14px; margin: 16px 0 8px 0; color: #1d1d1f; }
             table { width: 100%; border-collapse: collapse; font-size: 11.5px; margin-bottom: 16px; }
             th, td { border: 1px solid #d2d2d7; padding: 6px 8px; text-align: center; }
@@ -846,7 +958,10 @@ function exportCustomPDF(targetFid, compFid, opts) {
     win.document.close();
 }
 
-document.getElementById("mode-select").addEventListener("change", () => renderMap(false));
+document.getElementById("mode-select").addEventListener("change", () => {
+    activeLegendBin = null;
+    renderMap(false);
+});
 document.getElementById("chk-circles").addEventListener("change", () => renderMap(false));
 document.getElementById("chk-labels").addEventListener("change", () => renderMap(false));
 document.getElementById("chk-isolate").addEventListener("change", () => renderMap(true));
