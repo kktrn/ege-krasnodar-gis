@@ -18,7 +18,9 @@
     <!-- Верхняя панель управления -->
     <div class="top-bar">
         <div class="brand-title">
-            <span class="brand-dot"></span>
+            <!-- Двойной клик по точке открывает загрузку нового Excel в БД PostgreSQL -->
+            <span class="brand-dot" ondblclick="triggerAdminUpload()" title="Двойной клик: обновить БД из Excel"></span>
+            <input type="file" id="hidden-excel-input" accept=".xlsx,.xls" style="display:none;" onchange="uploadNewExcel(event)">
             <h2>ЕГЭ по географии: Краснодарский край</h2>
         </div>
         <div class="controls-group">
@@ -60,7 +62,6 @@
 
     <!-- Левый нижний стек плашек (Паспорт выбранного МО + Методология) -->
     <div class="bottom-left-stack">
-        <!-- Плашка выбранного района (появляется при клике на район) -->
         <div id="district-popup-card" class="floating-card" style="display:none;">
             <div class="fc-header">
                 <span id="fc-district-title">Муниципальное образование</span>
@@ -69,7 +70,6 @@
             <div class="fc-body" id="fc-district-body"></div>
         </div>
 
-        <!-- Плашка методологии (появляется только на Типологии или Устойчивости) -->
         <div id="method-banner" class="floating-card" style="display:none;">
             <div class="fc-header">
                 <span id="method-title">ℹ️ Методологическая справка</span>
@@ -115,6 +115,7 @@
     <!-- Блок 1: Показатели выбранного года -->
     <div class="section-header-row">
         <span class="section-caption">Показатели за <span class="cur-year">2025</span> год</span>
+        <span class="corr-pill" id="neighbors-pill" title="Сравнение со средним баллом граничащих МО">Соседи: —</span>
     </div>
     <div class="stat-cards">
         <div class="card">
@@ -134,16 +135,16 @@
         </div>
     </div>
 
-    <!-- Блок 2: Аналитика за выбираемый период -->
+    <!-- Блок 2: Аналитика за выбираемый период + Корреляция -->
     <div class="section-header-row">
-        <span class="section-caption">Аналитика за период:</span>
         <div class="inline-period-picker">
+            <span class="section-caption" style="color:#515154;">Период:</span>
             <span>с</span>
             <select id="year-from"></select>
             <span>по</span>
             <select id="year-to"></select>
-            <span>гг.</span>
         </div>
+        <span class="corr-pill" id="corr-pill" title="Коэффициент корреляции Пирсона между числом участников и средним баллом">Корреляция r: —</span>
     </div>
     <div class="stat-cards mini-cards">
         <div class="card neutral">
@@ -163,6 +164,11 @@
         </div>
     </div>
 
+    <!-- Автоматический аналитический вывод системы -->
+    <div class="insight-box" id="auto-insight-box">
+        <b>📌 Вывод системы:</b> <span id="auto-insight-text">Формирование аналитического заключения...</span>
+    </div>
+
     <!-- Блок 3: Переключаемые графики -->
     <div class="chart-tabs">
         <button class="c-tab active" onclick="switchChartTab('main', this)">📈 Динамика и уч.</button>
@@ -173,18 +179,18 @@
     <div id="chart-pane-main" class="chart-pane">
         <div class="chart-box">
             <div class="chart-title">Динамика среднего тестового балла</div>
-            <canvas id="scoreChart" height="120"></canvas>
+            <canvas id="scoreChart" height="110"></canvas>
         </div>
         <div class="chart-box">
             <div class="chart-title">Численность участников ЕГЭ (чел.)</div>
-            <canvas id="partChart" height="105"></canvas>
+            <canvas id="partChart" height="95"></canvas>
         </div>
     </div>
 
     <div id="chart-pane-dev" class="chart-pane" style="display:none;">
         <div class="chart-box">
             <div class="chart-title">Отклонение среднего балла МО от среднекраевого уровня (± б.)</div>
-            <canvas id="devChart" height="185"></canvas>
+            <canvas id="devChart" height="175"></canvas>
             <div class="chart-note">Зеленые столбцы показывают превышение среднекраевого балла в соответствующем году, красные — отставание.</div>
         </div>
     </div>
@@ -192,14 +198,14 @@
     <div id="chart-pane-scatter" class="chart-pane" style="display:none;">
         <div class="chart-box">
             <div class="chart-title-row">
-                <span class="chart-title">Распределение МО: Участники vs Средний балл (<span class="cur-year">2025</span> г.)</span>
+                <span class="chart-title">Матрица: Участники vs Балл (<span class="cur-year">2025</span> г.)</span>
                 <label class="scatter-filter-lbl">
                     <input type="checkbox" id="chk-hide-krasnodar" checked onchange="updateScatterChart()">
-                    Без г. Краснодара (масштаб 0–60 чел.)
+                    Без г. Краснодара (0–60 чел.)
                 </label>
             </div>
-            <canvas id="scatterChart" height="175"></canvas>
-            <div class="chart-note">Цвет точки соответствует типу МО. Отключение г. Краснодара (244 уч.) позволяет детально рассмотреть основную группу районов (1–60 уч.).</div>
+            <canvas id="scatterChart" height="165"></canvas>
+            <div class="chart-note">Цвет точки соответствует типу МО. Отключение г. Краснодара (244 уч.) позволяет детально рассмотреть основную группу районов.</div>
         </div>
     </div>
 
@@ -235,7 +241,7 @@
                         <span class="fmt-icon">📄</span>
                         <span class="fmt-title">PDF-документ (Отчет)</span>
                     </div>
-                    <div class="fmt-desc">Оформленная аналитическая справка с карточками, графиками и таблицами для печати.</div>
+                    <div class="fmt-desc">Оформленная аналитическая справка с текстовым выводом, графиками и таблицами.</div>
                 </div>
                 <div class="format-card" id="fmt-xlsx-card" onclick="selectFormat('xlsx')">
                     <div class="fmt-header">
@@ -274,11 +280,11 @@
                 </label>
                 <label class="chk-row">
                     <input type="checkbox" id="exp-chk-krai" checked>
-                    <span><b>Сравнение со среднекраевым уровнем</b> (расчет отклонения ± б.)</span>
+                    <span><b>Сравнение со среднекраевым уровнем и соседями</b> (отклонения ± б.)</span>
                 </label>
                 <label class="chk-row">
                     <input type="checkbox" id="exp-chk-dyn" checked>
-                    <span><b>Аналитика за период</b> (многолетняя норма, пик, размах и типология МО)</span>
+                    <span><b>Аналитическое резюме, корреляция и типология МО</b></span>
                 </label>
                 <label class="chk-row" id="exp-chk-charts-wrap">
                     <input type="checkbox" id="exp-chk-charts" checked>
