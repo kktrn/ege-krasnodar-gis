@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Веб-ГИС ЕГЭ по географии — Краснодарский край</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="style.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+<div id="map-container">
+    <div class="top-bar">
+        <h2>
+            ЕГЭ по географии: Краснодарский край
+            <span class="db-pill" id="db-status">● PostgreSQL (Neon)</span>
+        </h2>
+        <div class="controls-group">
+            <label>Карта:
+                <select id="mode-select">
+                    <option value="avg">Средний балл (по годам)</option>
+                    <option value="kol">Количество участников (по годам)</option>
+                    <option value="dyn_avg">Динамика ср. балла (за период)</option>
+                    <option value="dyn_kol">Динамика участников (за период)</option>
+                    <option value="typology">★ Типология районов (4 типа)</option>
+                    <option value="stability">★ Устойчивость (размах колебаний)</option>
+                </select>
+            </label>
+
+            <div class="period-box" id="period-box">
+                Период: с <select id="year-from"></select> по <select id="year-to"></select>
+            </div>
+
+            <label>Объект:
+                <select id="district-select">
+                    <option value="all">📊 ВЕСЬ КРАСНОДАРСКИЙ КРАЙ</option>
+                </select>
+            </label>
+
+            <label>Сравнить с:
+                <select id="compare-select">
+                    <option value="none">— нет —</option>
+                </select>
+            </label>
+
+            <label style="cursor:pointer; font-weight:600; color:#30336b;">
+                <input type="checkbox" id="chk-circles" checked> Значки уч.
+            </label>
+            <label style="cursor:pointer; font-weight:600; color:#2c3e50;">
+                <input type="checkbox" id="chk-labels"> Подписи
+            </label>
+
+            <label class="btn btn-purple" style="cursor:pointer;" title="Загрузить новый файл Excel в базу данных PostgreSQL">
+                🔄 Загрузить Excel в БД
+                <input type="file" id="excel-upload" accept=".xlsx,.xls" style="display:none">
+            </label>
+        </div>
+    </div>
+
+    <div id="map"></div>
+
+    <div class="author-badge">
+        <b>Автор проекта:</b> Кулик Е.О. (ФГБОУ ВО «КубГУ», ИГГТиС, каф. геоинформатики, 05.03.03)<br>
+        <b>Научный руководитель:</b> канд. геогр. наук, доц. Комаров Д.А.
+    </div>
+    <div class="clean-attr">Картографическая основа: © OpenStreetMap contributors, Esri</div>
+
+    <div class="time-panel" id="time-panel">
+        <button class="play-btn" id="play-btn">▶ Пуск</button>
+        <input type="range" id="year-slider" min="2020" max="2025" step="1" value="2025">
+        <span id="year-label">2025</span>
+    </div>
+</div>
+
+<div id="sidebar">
+    <div class="sidebar-header">
+        <div>
+            <h3 class="sidebar-title" id="region-name">Краснодарский край</h3>
+            <div id="region-type" class="type-badge">Загрузка данных из БД...</div>
+        </div>
+        <button class="btn btn-blue krai-btn" onclick="selectDistrict('all', false)">📊 Весь край</button>
+    </div>
+
+    <!-- Переключатель изоляции одного выбранного района на карте -->
+    <div class="isolate-bar" id="isolate-bar" style="display:none;">
+        <span>🔍 Режим фокуса на муниципалитете:</span>
+        <label style="cursor:pointer;">
+            <input type="checkbox" id="chk-isolate"> Оставить только его шейп на карте
+        </label>
+    </div>
+
+    <div class="stat-cards">
+        <div class="card">
+            <div class="card-label">Ср. балл (<span class="cur-year">2025</span>)</div>
+            <div class="card-val" id="val-avg">—</div>
+        </div>
+        <div class="card purple">
+            <div class="card-label">Участников (<span class="cur-year">2025</span>)</div>
+            <div class="card-val" id="val-kol">—</div>
+        </div>
+        <div class="card orange">
+            <div class="card-label" id="rank-label">Рейтинг в крае</div>
+            <div class="card-val" id="val-rank">—</div>
+        </div>
+    </div>
+
+    <!-- Кнопки выгрузки аналитических отчетов -->
+    <div class="report-actions">
+        <button class="btn btn-green" onclick="downloadExcelReport()">📥 Скачать отчет Excel (.xlsx)</button>
+        <button class="btn btn-dark" onclick="printPDFReport()">📄 Сформировать PDF-отчет</button>
+    </div>
+
+    <div class="chart-box"><canvas id="scoreChart" height="150"></canvas></div>
+    <div class="chart-box"><canvas id="partChart" height="135"></canvas></div>
+
+    <!-- Таблица для красивой выгрузки в PDF при печати -->
+    <div id="print-report-table"></div>
+
+    <div class="top-tables">
+        <div class="top-box">
+            <h4>🏆 Топ-5 лидеров (<span class="cur-year">2025</span>)</h4>
+            <div id="top-leaders"></div>
+        </div>
+        <div class="top-box">
+            <h4>⚠️ Минимум балла (<span class="cur-year">2025</span>)</h4>
+            <div id="top-outsiders"></div>
+        </div>
+    </div>
+
+    <div class="author-footer">
+        ВКР: «Создание интерактивной карты результатов ЕГЭ по географии в Краснодарском крае»<br>
+        <b>Архитектура:</b> PostgreSQL (Neon) + FastAPI (Python) + Leaflet Web-GIS
+    </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
